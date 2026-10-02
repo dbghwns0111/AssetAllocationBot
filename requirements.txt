@@ -1,4 +1,8 @@
-flask>=3.0
-pandas>=2.2
-yfinance>=0.2.54
+# 순수 Python 의존성만 사용 (Windows Server 2012 R2 호환 — numpy/pandas/yfinance 미사용)
+flask>=3.0,<4
 waitress>=3.0
+requests>=2.31
+python-dotenv>=1.0
+apscheduler==3.10.4
+tzdata
+pytest>=8

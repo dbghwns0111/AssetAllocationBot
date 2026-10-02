@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>HAA Allocation · 로그인</title>
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/icon-192.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script>try { const t = localStorage.getItem('haa-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" method="post" action="{{ url_for('auth.login') }}{% if request.args.get('next') %}?next={{ request.args.get('next')|urlencode }}{% endif %}">
+      <img class="brand-mark" src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" style="border-radius:14px">
+      <h1>HAA Allocation</h1>
+      <p>접속 비밀번호를 입력하세요</p>
+      <div class="login-err">{{ error or '' }}</div>
+      <input class="input" type="password" name="password" id="pw" placeholder="비밀번호"
+             autocomplete="current-password" autofocus required>
+      <div class="caps-warn" id="caps" hidden>Caps Lock 이 켜져 있습니다</div>
+      <button class="btn btn-primary btn-block" type="submit" style="margin-top:14px">로그인</button>
+    </form>
+  </div>
+  <script>
+    // 5회 실패 시 10분 잠금이라 Caps Lock 실수를 미리 알린다
+    const pw = document.getElementById('pw'), caps = document.getElementById('caps');
+    const upd = (e) => { if (e.getModifierState) caps.hidden = !e.getModifierState('CapsLock'); };
+    pw.addEventListener('keydown', upd); pw.addEventListener('keyup', upd);
+    pw.addEventListener('blur', () => { caps.hidden = true; });
+  </script>
+</body>
+</html>

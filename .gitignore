@@ -1,7 +1,26 @@
-.venv/
-__pycache__/
-*.pyc
+# 환경 변수 (비밀번호·텔레그램 토큰 — 절대 커밋 금지)
 .env
-records.db
+
+# 가상환경
+.venv/
+
+# 데이터베이스 · 백업 · 로그 (서버마다 다름)
+data/
+*.db
+*.db-shm
+*.db-wal
 *.db-journal
+logs/
+*.log
+
+# Python 산출물
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# IDE
 .vscode/
+.idea/
+
+# 서비스 설치 시 자동 생성 (머신별 절대 경로 포함)
+run_service.bat
