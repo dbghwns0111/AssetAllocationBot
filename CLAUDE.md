@@ -10,7 +10,8 @@ HAA(Hybrid Asset Allocation, Keller & Keuning 2023) 월간 리밸런싱 신호 �
 - 커밋: `feat:` / `fix:` / `docs:` / `refactor:` / `style:` 접두사 + 한국어 요약 한 줄, 본문에 원인·변경·검증. **커밋 후 push 까지** (원격 설정 후).
 - 서버에 영향을 주는 변경(.env 키, requirements, DB 스키마)은 `update.bat` 만으로 반영돼야 한다. 스키마 변경은 `database/models.py` 에서 `CREATE TABLE IF NOT EXISTS` / `_add_column()` 으로만 (기존 `data/haa.db` 를 깨지 말 것).
 - 의존성은 **순수 Python 패키지만**. numpy/pandas/yfinance(curl_cffi) 금지 — 운영 서버가 Windows Server 2012 R2 라 네이티브 휠 설치가 보장되지 않는다. 그래서 가격은 `market/prices.py` 가 Yahoo v8 chart API 를 requests 로 직접 호출한다.
-- 코드는 Python 3.9 호환 유지 (`from __future__ import annotations`, match 문 금지). 서버 Python 버전은 아직 확인 전.
+- 서버 Python 은 **3.13** (개발 PC .venv 는 3.12). 코드는 3.9 이상 호환으로 유지. requirements 의 네이티브 확장은 markupsafe·charset_normalizer 뿐이며 cp313 win_amd64 휠 존재 확인함 (2026-10-03).
+- 원격 저장소: https://github.com/dbghwns0111/AssetAllocationBot (브랜치 `main`).
 
 ## 운영 환경 (crypto-split-bot 과 같은 서버)
 

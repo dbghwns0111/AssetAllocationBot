@@ -29,7 +29,7 @@ deploy.bat       :: 변경사항 커밋 + GitHub push
 
 1. **설치**
    ```bat
-   git clone https://github.com/<계정>/<저장소>.git C:\haa-allocation
+   git clone https://github.com/dbghwns0111/AssetAllocationBot.git C:\haa-allocation
    cd C:\haa-allocation
    ```
    `install_service.bat` 을 **우클릭 → 관리자로 실행**.
