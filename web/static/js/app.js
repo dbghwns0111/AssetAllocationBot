@@ -136,9 +136,10 @@ async function loadSignal(refresh = false) {
 
 function reasonText(s) {
   const mom = Object.fromEntries(s.assets.map((a) => [a.ticker, a.momentum]));
-  if (!s.canary_on) return `카나리아 TIP 모멘텀이 ${pct(s.canary_momentum)}로 0 이하라서, 이번 달은 전액 ${s.defensive_asset}(으)로 방어합니다.`;
+  const def = s.defensive_asset === s.cash_proxy ? `${s.defensive_asset} 신호 → 현금 보유` : s.defensive_asset;
+  if (!s.canary_on) return `카나리아 TIP 모멘텀이 ${pct(s.canary_momentum)}로 0 이하라서, 이번 달은 전액 방어(${def})합니다.`;
   const bad = s.top.filter((t) => mom[t] <= 0);
-  if (bad.length) return `상위 4개 중 ${bad.join(', ')}의 모멘텀이 0 이하라서 그 몫은 ${s.defensive_asset}(으)로 대체합니다.`;
+  if (bad.length) return `상위 4개 중 ${bad.join(', ')}의 모멘텀이 0 이하라서 그 몫은 방어자산(${def})으로 대체합니다.`;
   return `카나리아가 양호해 공격자산 상위 4개(${s.top.join(', ')})에 25%씩 투자합니다.`;
 }
 
@@ -151,10 +152,12 @@ function renderSignal() {
   ];
   if (s.partial) pills.push('<span class="pill warn"><svg><use href="#i-alert"/></svg>미확정 · 당월 미리보기</span>');
   if (s.stale) pills.push('<span class="pill warn"><svg><use href="#i-alert"/></svg>가격 조회 실패 · 이전 데이터</span>');
+  if (s.cash_weight > 0) pills.push(`<span class="pill">💵 ${s.cash_proxy} ${pct(s.cash_weight, 0, false)} → <b>현금 보유</b></span>`);
   if (s.next_hint) pills.push(`<span class="pill warn"><svg><use href="#i-clock"/></svg>${esc(s.next_hint)}</span>`);
 
   const hero = $('#hero');
-  hero.className = `card hero mode-${s.mode}`;
+  hero.classList.remove('mode-offensive', 'mode-mixed', 'mode-defensive');   // a-hero(배치용) 클래스는 유지
+  hero.classList.add(`mode-${s.mode}`);
   hero.innerHTML = `
     <div class="hero-status">
       <div class="mode-icon"><svg><use href="#${m.icon}"/></svg></div>
@@ -165,6 +168,7 @@ function renderSignal() {
     </div>
     <p class="hero-desc">${esc(reasonText(s))}</p>
     <div class="hero-meta">${pills.join('')}</div>
+    <div class="hero-facts">${heroFacts(s)}</div>
     <div class="toggle-row">
       <label class="switch"><input type="checkbox" id="partial-toggle" ${S.partial ? 'checked' : ''}><span class="track"></span>진행 중인 달 가격으로 미리보기</label>
       <a class="btn btn-primary btn-sm" href="#rebalance" data-goto="rebalance" style="text-decoration:none">리밸런싱 하기 →</a>
@@ -179,6 +183,32 @@ function renderSignal() {
   renderCanary();
   renderChanges();
   renderMomentum();
+}
+
+// 이번 달 기준 그 달 마지막 평일 (다음 신호가 확정되는 날, 미국 시간)
+function lastWeekday(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m, 0);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return d;
+}
+
+function heroFacts(s) {
+  const wd = ['일', '월', '화', '수', '목', '금', '토'];
+  const next = lastWeekday(s.apply_month);
+  const kst = new Date(next); kst.setDate(kst.getDate() + 1);
+  const nextApply = (() => { const [y, m] = s.apply_month.split('-').map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; })();
+  const done = S.records.find((r) => r.apply_month === s.apply_month);
+  const last = S.records[0];
+  const fact = (label, value, sub, cls = '') => `<div class="fact ${cls}"><div class="fact-label">${label}</div><div class="fact-value">${value}</div><div class="fact-sub">${sub}</div></div>`;
+  return [
+    done
+      ? fact(`${monthLabel(s.apply_month).slice(6)} 리밸런싱`, '<svg><use href="#i-check"/></svg>완료', `${done.rebalance_date} 기록`, 'ok')
+      : fact(`${monthLabel(s.apply_month).slice(6)} 리밸런싱`, '아직 안 함', '매매 후 리밸런싱 탭에서 기록', 'todo'),
+    fact('다음 신호 확정', `${next.getMonth() + 1}월 ${next.getDate()}일(${wd[next.getDay()]})`,
+      `미국 장 마감 후 · 한국 ${kst.getMonth() + 1}/${kst.getDate()} 새벽 → ${monthLabel(nextApply).slice(6)} 적용`),
+    fact('마지막 리밸런싱', last ? last.rebalance_date : '-', last ? `총자산 ${usd(last.total_value)}` : '기록 없음'),
+  ].join('');
 }
 
 function renderAlloc() {
@@ -207,7 +237,7 @@ function renderAlloc() {
     <ul class="legend">
       ${entries.map(([t, w]) => `
         <li data-t="${t}"><span class="sw" style="background:${tcolor(t)}"></span>
-          <div class="lg-name"><b>${t}</b><span>${esc(names[t])}</span></div>
+          <div class="lg-name"><b>${t}</b>${t === s.cash_proxy ? '<em class="cash-note">현금 보유</em>' : ''}<span>${t === s.cash_proxy ? '매수하지 않고 같은 비중을 달러 현금으로' : esc(names[t])}</span></div>
           <div class="lg-val">${pct(w, 0, false)}</div></li>`).join('')}
     </ul>`;
 
@@ -249,7 +279,7 @@ function renderChanges() {
   const cur = Object.keys(s.weights);
   const kept = cur.filter((t) => prev.includes(t));
   $('#chg-sub').textContent = `${monthLabel(s.prev.apply_month)} → ${monthLabel(s.apply_month)}`;
-  const chips = (list, cls) => list.map((t) => `<span class="chip ${cls}"><span class="sw" style="background:${tcolor(t)}"></span>${t}</span>`).join('');
+  const chips = (list, cls) => list.map((t) => `<span class="chip ${cls}"><span class="sw" style="background:${tcolor(t)}"></span>${t}${t === s.cash_proxy ? ' (현금)' : ''}</span>`).join('');
   const rows = [];
   if (s.added.length) rows.push(`<div class="chg-row"><span class="chg-label">새로 편입</span>${chips(s.added, 'in')}</div>`);
   if (s.removed.length) rows.push(`<div class="chg-row"><span class="chg-label">제외</span>${chips(s.removed, 'out')}</div>`);
@@ -284,16 +314,24 @@ function renderMomentum() {
   }).join('');
   $$('#momentum .mom-row').forEach((row) => bindTip(row, () => momTip(by[row.dataset.t])));
 
-  $('#momentum-table').innerHTML = `<table class="tbl">
+  const tableHtml = `<table class="tbl">
     <thead><tr><th>종목</th><th>구분</th><th>1개월</th><th>3개월</th><th>6개월</th><th>12개월</th><th>13612U</th><th>순위</th><th>현재가</th></tr></thead>
     <tbody>${order.map((t) => { const a = by[t]; return `<tr class="${t in s.weights ? 'pick' : ''}">
       <td><b>${t}</b> <span class="muted">${esc(a.name)}</span></td><td>${a.role}</td>
       <td>${pct(a.r1)}</td><td>${pct(a.r3)}</td><td>${pct(a.r6)}</td><td>${pct(a.r12)}</td>
       <td><b>${pct(a.momentum)}</b></td><td>${a.rank ?? '-'}</td><td>${usd(s.prices[t])}</td></tr>`; }).join('')}</tbody></table>`;
+  $('#momentum-table').innerHTML = tableHtml;
+  $('#momentum-table-wide').innerHTML = tableHtml;
 }
 
 /* ══ 리밸런싱 ═══════════════════════════════════════════════════════════════ */
 function latestRecord() { return S.records[0] || null; }
+
+// 실제 매수 목표 비중 — 신호의 BIL 비중은 현금으로 두므로 0
+function buyWeight(t) {
+  const s = S.sig;
+  return t === s.cash_proxy ? 0 : (s.weights[t] || 0);
+}
 
 function prefillRebalance() {
   const r = latestRecord();
@@ -315,8 +353,15 @@ function renderRebalance() {
   $('#rb-signal').textContent = `${monthLabel(s.apply_month)} 신호 · ${MODE[s.mode].title}${s.partial ? ' (미리보기)' : ''} · 가격 ${s.price_date}`;
   TRADABLE.forEach((t) => { if (S.rb.px[t] == null) S.rb.px[t] = +s.prices[t].toFixed(2); });
 
-  const rows = TRADABLE.filter((t) => showAll || s.weights[t] || fnum(S.rb.cur[t]) > 0);
-  $('#orders').innerHTML = rows.map((t) => `
+  const rows = TRADABLE.filter((t) => showAll || buyWeight(t) || fnum(S.rb.cur[t]) > 0);
+  const cashCard = s.cash_weight > 0 ? `
+    <div class="order cash">
+      <div class="order-id"><span class="sw" style="background:var(--t-CASH)"></span>
+        <div style="min-width:0"><b>현금 (USD)</b><small>신호 ${s.cash_proxy} ${pct(s.cash_weight, 0, false)} → 매수하지 않고 현금으로 보유</small></div></div>
+      <span class="action hold" data-k="cash-target">-</span>
+      <div class="order-meta"><span>보유 중인 ${s.cash_proxy} 가 있으면 아래에서 매도로 표시됩니다.</span></div>
+    </div>` : '';
+  $('#orders').innerHTML = cashCard + rows.map((t) => `
     <div class="order" data-t="${t}">
       <div class="order-id"><span class="sw" style="background:${tcolor(t)}"></span>
         <div style="min-width:0"><b>${t}</b><small>${esc(s.names[t])} · ${usd(s.prices[t])}</small></div></div>
@@ -344,7 +389,7 @@ function recalc() {
   let buy = 0, sell = 0;
   const afterVal = {};
   TRADABLE.forEach((t) => {
-    const w = s.weights[t] || 0;
+    const w = buyWeight(t);
     const raw = total > 0 ? (total * w) / s.prices[t] : 0;
     const target = frac ? Math.floor(raw * 10000) / 10000 : Math.floor(raw);
     if (!rb.edited[t]) rb.after[t] = target;
@@ -361,13 +406,16 @@ function recalc() {
     const act = row.querySelector('[data-k="action"]');
     act.className = `action ${d > 0 ? 'buy' : d < 0 ? 'sell' : 'hold'}`;
     act.textContent = d > 0 ? `매수 ${num(d)}주` : d < 0 ? `매도 ${num(-d)}주` : '유지';
-    row.querySelector('[data-k="meta"]').innerHTML =
-      `<span>목표 <b>${pct(w, 0, false)}</b></span><span>목표 수량 <b>${num(target)}주</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`;
+    row.querySelector('[data-k="meta"]').innerHTML = t === s.cash_proxy && s.cash_weight > 0
+      ? `<span>신호 <b>${pct(s.cash_weight, 0, false)}</b> → 현금으로 보유 (매수 안 함)</span><span>체결 후 <b>${usd(after * px)}</b></span>`
+      : `<span>목표 <b>${pct(w, 0, false)}</b></span><span>목표 수량 <b>${num(target)}주</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`;
     const afterInput = row.querySelector('[data-f="after"]');
     if (document.activeElement !== afterInput) afterInput.value = rb.after[t];
   });
 
   const remain = rb.cash + rb.deposit + sell - buy;
+  const cashTarget = $('[data-k="cash-target"]');
+  if (cashTarget) cashTarget.textContent = `목표 현금 ${usd(total * s.cash_weight)}`;
   $('#sum-total').textContent = usd(total);
   $('#sum-buy').textContent = usd(buy);
   $('#sum-sell').textContent = usd(sell);
@@ -443,6 +491,7 @@ async function saveRecord(btn) {
 /* ══ 기록 ═══════════════════════════════════════════════════════════════════ */
 async function loadRecords() {
   S.records = await api('/api/records');
+  if (S.sig) renderSignal();
   if (S.view === 'records') renderRecordsView();
 }
 
@@ -524,7 +573,7 @@ async function loadHistory() {
     <tbody>${S.hist.map((h) => `<tr>
       <td><b>${h.apply_month}</b></td>
       <td><span class="mode-tag ${h.mode}">${MODE[h.mode].title}</span></td>
-      <td style="text-align:left">${Object.entries(h.weights).map(([t, w]) => `<span class="chip" style="padding:2px 8px;font-size:12px;margin:1px"><span class="sw" style="background:${tcolor(t)}"></span>${t}${w !== 0.25 ? ` ${pct(w, 0, false)}` : ''}</span>`).join('')}</td>
+      <td class="wrap" style="text-align:left">${Object.entries(h.weights).map(([t, w]) => `<span class="chip" style="padding:2px 8px;font-size:12px;margin:1px"><span class="sw" style="background:${tcolor(t)}"></span>${t}${w !== 0.25 ? ` ${pct(w, 0, false)}` : ''}</span>`).join('')}</td>
       <td>${pct(h.canary_momentum, 1)}</td>
       <td><b>${h.return == null ? '-' : `${tri(h.return)} ${pct(h.return)}`}</b>${h.return_partial ? ' <span class="muted">(진행 중)</span>' : ''}</td>
     </tr>`).join('')}</tbody></table>`;

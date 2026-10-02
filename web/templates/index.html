@@ -74,72 +74,71 @@
 </nav>
 
 <main>
-  <!-- ══ 이번 달 ══════════════════════════════════════════════════════════ -->
+  <!-- ══ 이번 달 ══════════════════════════════════════════════════════════
+       화면 폭에 따라 1~4단으로 재배치 (app.css 의 .sig-layout grid-template-areas) -->
   <section class="view on" id="view-signal" aria-label="이번 달 신호">
-    <div class="grid grid-hero">
-      <div class="card hero" id="hero">
+    <div class="layout sig-layout">
+      <div class="card hero a-hero" id="hero">
         <div class="skeleton" style="height:28px;width:40%"></div>
         <div class="skeleton" style="height:48px;width:70%"></div>
         <div class="skeleton" style="height:18px;width:90%"></div>
       </div>
-      <div class="card">
+      <div class="card a-alloc">
         <div class="card-head">
           <div><h2 class="card-title">목표 비중</h2><p class="card-sub" id="alloc-sub">&nbsp;</p></div>
         </div>
         <div class="alloc" id="alloc"><div class="skeleton" style="height:200px;width:200px;border-radius:50%"></div></div>
       </div>
-    </div>
-
-    <div class="grid grid-2">
-      <div class="card" id="canary-card">
+      <div class="card a-canary" id="canary-card">
         <div class="card-head"><div><h2 class="card-title">카나리아 · TIP</h2><p class="card-sub">물가연동채 모멘텀이 0보다 크면 공격, 아니면 방어</p></div></div>
         <div id="canary"></div>
       </div>
-      <div class="card">
+      <div class="card a-changes">
         <div class="card-head"><div><h2 class="card-title">지난달 대비</h2><p class="card-sub" id="chg-sub">&nbsp;</p></div></div>
         <div class="changes" id="changes"></div>
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <div><h2 class="card-title">13612U 모멘텀 순위</h2><p class="card-sub">(1 + 3 + 6 + 12개월 수익률) ÷ 4 · 막대에 마우스를 올리면 기간별 수익률</p></div>
-        <button class="link-btn" id="btn-mom-table" aria-pressed="false">표로 보기</button>
+      <div class="card a-mom">
+        <div class="card-head">
+          <div><h2 class="card-title">13612U 모멘텀 순위</h2><p class="card-sub">(1 + 3 + 6 + 12개월 수익률) ÷ 4 · 막대에 마우스를 올리면 기간별 수익률</p></div>
+          <button class="link-btn mom-toggle" id="btn-mom-table" aria-pressed="false">표로 보기</button>
+        </div>
+        <div id="momentum" class="mom-list"></div>
+        <div id="momentum-table" class="table-wrap hidden"></div>
       </div>
-      <div id="momentum" class="mom-list"></div>
-      <div id="momentum-table" class="table-wrap hidden"></div>
+      <div class="card a-momtable">
+        <div class="card-head"><div><h2 class="card-title">기간별 수익률</h2><p class="card-sub">월말 수정종가 기준 · 강조 = 이번 달 편입</p></div></div>
+        <div id="momentum-table-wide" class="table-wrap"></div>
+      </div>
     </div>
   </section>
 
   <!-- ══ 리밸런싱 ═════════════════════════════════════════════════════════ -->
   <section class="view" id="view-rebalance" aria-label="리밸런싱">
-    <div class="grid grid-rb">
-      <div>
-        <div class="card">
-          <div class="step-head"><span class="step-no">1</span><div><h2 class="card-title">현재 상태</h2><p class="card-sub" id="rb-prev">직전 기록이 있으면 보유 수량과 현금이 자동으로 채워집니다.</p></div></div>
-          <div class="form-grid">
-            <label class="field"><span>매매일</span><input class="input" type="date" id="rb-date"></label>
-            <label class="field"><span>보유 현금 (USD)</span><input class="input" type="number" inputmode="decimal" step="0.01" id="rb-cash" value="0"></label>
-            <label class="field"><span>입금(+) / 출금(−)</span><input class="input" type="number" inputmode="decimal" step="0.01" id="rb-deposit" value="0"></label>
-          </div>
-          <div class="toggle-row" style="margin-top:14px">
+    <div class="layout rb-layout">
+      <div class="card a-setup">
+        <div class="step-head"><span class="step-no">1</span><div><h2 class="card-title">현재 상태</h2><p class="card-sub" id="rb-prev">직전 기록이 있으면 보유 수량과 현금이 자동으로 채워집니다.</p></div></div>
+        <div class="setup-grid">
+          <label class="field"><span>매매일</span><input class="input" type="date" id="rb-date"></label>
+          <label class="field"><span>보유 현금 (USD)</span><input class="input" type="number" inputmode="decimal" step="0.01" id="rb-cash" value="0"></label>
+          <label class="field"><span>입금(+) / 출금(−)</span><input class="input" type="number" inputmode="decimal" step="0.01" id="rb-deposit" value="0"></label>
+          <div class="field setup-toggles">
             <label class="switch"><input type="checkbox" id="rb-fractional"><span class="track"></span>소수점 매매</label>
             <label class="switch"><input type="checkbox" id="rb-all"><span class="track"></span>전체 종목 보기</label>
           </div>
         </div>
-
-        <div class="card">
-          <div class="step-head"><span class="step-no">2</span><div><h2 class="card-title">주문 목록</h2><p class="card-sub" id="rb-signal">&nbsp;</p></div></div>
-          <div class="order-list" id="orders"></div>
-        </div>
       </div>
 
-      <aside class="card summary" aria-label="요약">
+      <div class="card a-orders">
+        <div class="step-head"><span class="step-no">2</span><div><h2 class="card-title">주문 목록</h2><p class="card-sub" id="rb-signal">&nbsp;</p></div></div>
+        <div class="order-list" id="orders"></div>
+      </div>
+
+      <aside class="card summary a-summary" aria-label="요약">
         <div class="step-head" style="margin:0"><span class="step-no">3</span><h2 class="card-title">체결 후 저장</h2></div>
         <div class="sum-row big"><span>총자산</span><b id="sum-total">-</b></div>
         <div class="sum-row"><span>매수 금액</span><b id="sum-buy">-</b></div>
         <div class="sum-row"><span>매도 금액</span><b id="sum-sell">-</b></div>
-        <div class="sum-row"><span>체결 후 잔여 현금</span><b id="sum-cash">-</b></div>
+        <div class="sum-row"><span>체결 후 현금</span><b id="sum-cash">-</b></div>
         <div class="sum-divider"></div>
         <div>
           <div class="sum-row" style="margin-bottom:8px"><span>체결 후 구성</span></div>
@@ -148,7 +147,7 @@
         </div>
         <label class="field"><span>메모</span><input class="input" type="text" id="rb-memo" maxlength="500" placeholder="환율, 수수료 등"></label>
         <button class="btn btn-primary btn-block" id="rb-save">기록 저장</button>
-        <p class="card-sub" style="margin:0">목표 수량 = 총자산 × 목표 비중 ÷ 현재가 (내림). 실제 체결 내용으로 "체결 후"와 "체결가"를 고친 뒤 저장하세요.</p>
+        <p class="card-sub" style="margin:0">목표 수량 = 총자산 × 목표 비중 ÷ 현재가 (내림). BIL 비중은 매수하지 않고 현금으로 둡니다. 실제 체결 내용으로 "체결 후"와 "체결가"를 고친 뒤 저장하세요.</p>
       </aside>
     </div>
   </section>
@@ -162,27 +161,27 @@
       </div>
     </div>
 
-    <div id="sub-mine">
-      <div class="stats" id="rec-stats"></div>
-      <div class="card" id="rec-chart-card">
+    <div id="sub-mine" class="layout rec-layout">
+      <div class="stats a-stats" id="rec-stats"></div>
+      <div class="card a-chart" id="rec-chart-card">
         <div class="card-head"><div><h2 class="card-title">총자산 추이</h2><p class="card-sub">리밸런싱 시점의 체결 후 총자산 (USD)</p></div></div>
         <div class="chart-box"><canvas id="rec-chart" aria-label="총자산 추이 차트" role="img"></canvas></div>
       </div>
-      <div class="card">
+      <div class="card a-timeline">
         <div class="card-head"><h2 class="card-title">리밸런싱 타임라인</h2></div>
         <div class="timeline" id="timeline"></div>
       </div>
     </div>
 
-    <div id="sub-history" class="hidden">
-      <div class="card">
+    <div id="sub-history" class="layout hist-layout hidden">
+      <div class="card a-chart">
         <div class="card-head">
-          <div><h2 class="card-title">신호대로 따랐을 때 누적 수익률</h2><p class="card-sub">최근 24개월 · 월말 수정종가 기준, 수수료·세금·환율 제외</p></div>
+          <div><h2 class="card-title">신호대로 따랐을 때 누적 수익률</h2><p class="card-sub">최근 24개월 · 월말 수정종가 기준 (BIL 은 BIL 수익률), 수수료·세금·환율 제외</p></div>
           <div class="stat-value" id="hist-total" style="font-size:22px"></div>
         </div>
         <div class="chart-box"><canvas id="hist-chart" aria-label="누적 수익률 차트" role="img"></canvas></div>
       </div>
-      <div class="card">
+      <div class="card a-table">
         <div class="card-head"><h2 class="card-title">월별 신호</h2></div>
         <div class="table-wrap" id="hist-table"></div>
       </div>

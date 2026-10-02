@@ -23,6 +23,8 @@ LOOKBACKS = (1, 3, 6, 12)
 ALL_TICKERS = sorted(set(OFFENSIVE + DEFENSIVE + [CANARY]))
 TRADABLE = OFFENSIVE + ["BIL"]           # 실제 매매 대상 (TIP 은 신호용)
 MASTER = "SPY"                            # 월 달력 기준 종목
+# 신호에는 BIL 로 표시하되, 실제로는 매수하지 않고 같은 비중을 현금(USD)으로 보유한다 (사용자 운용 방식)
+CASH_PROXY = "BIL"
 
 NAMES = {
     "SPY": "미국 대형주",
@@ -203,6 +205,8 @@ def compute_signal(prices: dict, now_ny: datetime, use_partial: bool = False) ->
         "assets": assets,
         "prev": {"apply_month": _apply_month(mt["dates"][i - 1]), "mode": prev["mode"],
                  "weights": prev["weights"]},
+        "cash_proxy": CASH_PROXY,
+        "cash_weight": alloc["weights"].get(CASH_PROXY, 0.0),
         "added": sorted(cur_w - prev_w),
         "removed": sorted(prev_w - cur_w),
         **alloc,

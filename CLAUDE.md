@@ -30,7 +30,7 @@ HAA(Hybrid Asset Allocation, Keller & Keuning 2023) 월간 리밸런싱 신호 �
 node --check web/static/js/app.js
 ```
 - 사용자 PC 의 전역 Anaconda 는 numpy/pandas ABI 충돌로 깨져 있음 → 반드시 `.venv`.
-- 화면 확인: 임시 DB 로 별도 포트에 띄우고 헤드리스 Chrome 으로 캡처 (`DB_PATH=<temp> HAA_PORT=5099`). 헤드리스 창은 최소 폭이 ~500px 라 모바일 확인은 390px iframe 으로 감싸서 찍는다.
+- 화면 확인: 임시 DB 로 별도 포트에 띄우고 헤드리스 Chrome 으로 캡처 (`DB_PATH=<temp> HAA_PORT=5099`). 폭 1920/1440/1366/1024 와 모바일을 모두 확인. 헤드리스 창은 최소 폭이 ~500px 라 모바일은 390px iframe 으로 감싸서 찍는다. 하위 탭은 `#records/history` 로 바로 연다.
 - Windows bash 의 curl 로 한글 JSON 을 보내면 인코딩이 깨져 400 이 난다 — API 테스트는 Python requests/test_client 로.
 
 ## 구조
@@ -62,6 +62,7 @@ scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / de
 - **월말 확정 판정** `month_complete()` (뉴욕 시각 기준): 뉴욕 날짜가 다음 달이면 확정. 같은 달이면 데이터가 그 달 마지막 평일이고 16:15 이후일 때만 확정. 휴장으로 끝나는 달은 다음 달 0시에 확정.
 - 기본은 직전 확정 월 신호, `partial=1` 이면 진행 중인 달 최신가로 미리보기.
 - `compute_signal` 은 지난달 신호(`prev`)와 편입/제외(`added`/`removed`)도 반환.
+- **BIL → 현금 (사용자 운용 방식)**: 신호에는 BIL 그대로 표시하되 사용자는 BIL 을 사지 않고 같은 비중을 달러 현금으로 보유한다. `haa.CASH_PROXY = "BIL"`, 신호 응답에 `cash_proxy`, `cash_weight` 포함. 계산기는 `buyWeight()` 로 BIL 목표를 0 으로 두고 현금 카드에 목표 현금 표시(보유 BIL 은 매도로 표시). 텔레그램 메시지에 "→ 현금" 과 안내 문구. 신호 이력 수익률은 전략 그대로 BIL 수익률로 계산(현금 이자와 차이 있음).
 
 ### 텔레그램 신호 알림 (`notification/scheduler.py::check_and_notify`)
 - 매시 05분 점검. 이번 뉴욕 월 신호를 이미 보냈고 오늘이 월말 마지막 평일이 아니면 가격 조회 없이 건너뜀.
@@ -88,6 +89,13 @@ POST   /api/telegram/test | /api/telegram/signal
 
 ### 프론트 (`web/static/js/app.js`, `css/app.css`)
 - 화면: `#signal` / `#rebalance` / `#records/mine|history` (해시 라우팅). PC 는 앱바 세그먼트 탭, 720px 이하는 하단 플로팅 탭바. 설정은 오른쪽 시트.
+- **전체 폭 반응형** (사용자 요청: 가운데 좁은 세로형 금지): `main` 폭 제한 없음, 여백 `--gutter`=clamp. 각 화면은 `.layout` + `grid-template-areas` 로 폭 구간별 재배치
+  - 이번 달 `.sig-layout`: ≤720 1단 / 721+ 2단 / 1200+ 3단 / 1600+ 4단(모멘텀 막대 + 기간별 수익률 표를 나란히, 토글 숨김)
+  - 리밸런싱 `.rb-layout`: 1100+ 본문 + 오른쪽 sticky 요약 (`grid-template-rows: auto 1fr`), 주문 카드는 auto-fill(최소 330px)
+  - 기록 `.rec-layout`: 1100+ 차트(sticky) + 타임라인 / `.hist-layout`: 1500+ 차트 + 표
+  - 카드 내부(도넛 범례, 모멘텀 행, 주문)는 `container-type: inline-size` 컨테이너 쿼리로 카드 폭 기준 반응
+  - 배치용 `a-*` 클래스를 JS 가 지우지 않게 할 것 (히어로는 `classList` 로 mode 클래스만 교체)
+- 히어로 하단 요약: 이번 달 리밸런싱 기록 여부 / 다음 신호 확정일(그 달 마지막 평일) / 마지막 리밸런싱.
 - 라이트/다크: OS 설정 + 수동 토글(`data-theme`, localStorage `haa-theme`). 차트는 테마 변경 시 다시 그림.
 - 색 규칙: 등락·매매는 한국식 (상승·매수 = 빨강 `--up`, 하락·매도 = 파랑 `--down`). 종목 색은 종목에 고정 (`--t-SPY` …, dataviz 검증 8색 + BIL 회색). 수치 텍스트는 잉크색 + ▲▼ 로 방향 표시.
 - 계산기: 총자산 = Σ현재보유×현재가 + 현금 + 입출금. 목표 수량 = floor(총자산×비중÷현재가) (소수점 매매 시 4자리). "체결 후"를 직접 고치면 `S.rb.edited` 로 고정. 잔여 현금 = 현금 + 입출금 + 매도액 − 매수액 (체결가 기준).

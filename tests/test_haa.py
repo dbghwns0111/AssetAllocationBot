@@ -95,3 +95,14 @@ def test_history_returns_follow_signal_weights():
     assert len(rows) == 6
     assert rows[0]["apply_month"] == "2026-10" and rows[0]["return"] is None
     assert rows[1]["return"] == pytest.approx(0.01)
+
+
+def test_cash_proxy_weight_reported():
+    # BIL 이 선택되면 그 비중이 cash_weight 로 내려가 화면/계산기가 현금으로 처리한다
+    g = {t: 0.02 for t in haa.ALL_TICKERS}
+    g.update(TIP=-0.01, BIL=0.003, IEF=-0.005)
+    sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
+    assert sig["cash_proxy"] == "BIL" and sig["cash_weight"] == 1.0
+    g.update(TIP=0.01)
+    sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
+    assert sig["cash_weight"] == 0.0
