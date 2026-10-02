@@ -20,6 +20,8 @@ HAA(Hybrid Asset Allocation, Keller & Keuning 2023) 월간 리밸런싱 신호 �
 - 상시 구동: 작업 스케줄러 `HAA-Allocation` (SYSTEM, 부팅 30초 후, 실패 시 1분 후 재시작) → `run_service.bat`(설치 시 생성, gitignore) → `.venv\Scripts\pythonw.exe main.py`.
 - 봇과 환경 분리: HAA 는 자체 `.venv`. 텔레그램도 **HAA 전용 봇** (CryptoSplit 봇 채널 사용 금지 — 사용자 요청). 세션 쿠키 이름 `haa_session` (같은 IP 의 5000 번 쿠키와 충돌 방지).
 - HAA 스크립트는 프로세스를 이름이 아니라 **이 프로젝트 `.venv` 경로**로 골라 종료한다 (CryptoSplit 을 죽이지 않도록).
+- install/uninstall/update.bat 은 관리자 권한이 아니면 스스로 관리자로 재실행한다 (`net session` 검사 → `Start-Process -Verb RunAs`). 과거 update.bat 을 일반 권한으로 실행해 재시작이 건너뛰어지자, 새 app.js + 옛 템플릿(서버 메모리 캐시)이 섞여 화면이 깨진 적이 있다 (2026-10-03).
+- 그 재발 방지: `TEMPLATES_AUTO_RELOAD=True`, CSS/JS 주소에 수정시각 `?v={{ asset_v }}` (web/app.py context_processor). 단, Python 코드(API) 변경은 여전히 재시작이 필요하다. JS 에서 새로 추가한 DOM 요소는 없을 수도 있다고 보고 null 검사할 것.
 - 웹 UI 는 CryptoSplit 과 **다른 독자 디자인**이다 (사용자 요청: 서버/배포/접속 방식만 참고, 화면 구조·스타일은 따라하지 말 것).
 
 ## 실행 / 검증

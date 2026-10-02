@@ -321,7 +321,8 @@ function renderMomentum() {
       <td>${pct(a.r1)}</td><td>${pct(a.r3)}</td><td>${pct(a.r6)}</td><td>${pct(a.r12)}</td>
       <td><b>${pct(a.momentum)}</b></td><td>${a.rank ?? '-'}</td><td>${usd(s.prices[t])}</td></tr>`; }).join('')}</tbody></table>`;
   $('#momentum-table').innerHTML = tableHtml;
-  $('#momentum-table-wide').innerHTML = tableHtml;
+  const wide = $('#momentum-table-wide');   // 넓은 화면용 카드 (구버전 HTML 에는 없음)
+  if (wide) wide.innerHTML = tableHtml;
 }
 
 /* ══ 리밸런싱 ═══════════════════════════════════════════════════════════════ */
