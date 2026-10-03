@@ -31,6 +31,7 @@
   <symbol id="i-pie" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></symbol>
   <symbol id="i-swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></symbol>
   <symbol id="i-empty" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18"/><path d="M8 15h4"/></symbol>
 </svg>
 
@@ -52,6 +53,7 @@
       <button data-view="signal" aria-current="page">이번 달</button>
       <button data-view="rebalance">리밸런싱</button>
       <button data-view="records">기록</button>
+      <button data-view="backtest">백테스트</button>
     </nav>
     <div class="appbar-actions">
       <button class="icon-btn" id="btn-refresh" title="가격 새로고침" aria-label="가격 새로고침">
@@ -71,6 +73,7 @@
   <button data-view="signal" aria-current="page"><svg><use href="#i-pie"/></svg>이번 달</button>
   <button data-view="rebalance"><svg><use href="#i-swap"/></svg>리밸런싱</button>
   <button data-view="records"><svg><use href="#i-book"/></svg>기록</button>
+  <button data-view="backtest"><svg><use href="#i-chart"/></svg>백테스트</button>
 </nav>
 
 <main>
@@ -187,6 +190,79 @@
       </div>
     </div>
   </section>
+
+  <!-- ══ 백테스트 ═════════════════════════════════════════════════════════
+       기본 결과는 서버가 미리 계산해 두고 바로 표시. 조건을 바꾸면 [백테스트 실행]을 눌러야 재계산 -->
+  <section class="view" id="view-backtest" aria-label="백테스트">
+    <div class="layout bt-layout" id="bt-layout">
+      <div class="card a-btctrl">
+        <div class="card-head">
+          <div><h2 class="card-title">백테스트 조건</h2><p class="card-sub" id="bt-applied">&nbsp;</p></div>
+          <span class="pill warn hidden" id="bt-dirty"><svg><use href="#i-alert"/></svg>조건이 변경되었습니다</span>
+        </div>
+        <div class="bt-form">
+          <div class="field">
+            <span>기간</span>
+            <div class="chip-row" id="bt-presets">
+              <button class="chip-btn" data-preset="all">전체</button>
+              <button class="chip-btn" data-preset="15">15년</button>
+              <button class="chip-btn" data-preset="10">10년</button>
+              <button class="chip-btn" data-preset="5">5년</button>
+              <button class="chip-btn" data-preset="3">3년</button>
+            </div>
+            <div class="bt-range">
+              <input class="input" type="month" id="bt-start" aria-label="시작 월">
+              <span class="muted">~</span>
+              <input class="input" type="month" id="bt-end" aria-label="종료 월">
+            </div>
+          </div>
+          <label class="field"><span>슬리피지 (매매 금액 대비 %, 수수료 포함)</span>
+            <input class="input" type="number" inputmode="decimal" step="0.01" min="0" max="2" id="bt-slippage"></label>
+          <div class="field"><span>BIL 신호 처리</span>
+            <div class="segnav" id="bt-cash"><button data-v="cash">현금 (0%)</button><button data-v="bil">BIL 수익률</button></div></div>
+          <div class="field"><span>통화</span>
+            <div class="segnav" id="bt-currency"><button data-v="usd">USD</button><button data-v="krw">원화 환산</button></div></div>
+          <div class="field bt-bench-field"><span>비교 벤치마크</span><div class="chip-row" id="bt-bench"></div></div>
+        </div>
+        <div class="bt-actions">
+          <p class="card-sub" style="margin:0">월말 종가로 신호 계산·체결 · 슬리피지는 사고판 금액에 부과 · Sharpe 무위험수익률 = BIL · 월말 기준이라 월중 낙폭은 미반영</p>
+          <div class="bt-buttons">
+            <button class="btn btn-ghost" id="bt-reset">기본값으로</button>
+            <button class="btn btn-primary" id="bt-run">백테스트 실행</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats a-btkpi" id="bt-kpis"></div>
+
+      <div class="card a-btchart">
+        <div class="card-head">
+          <div><h2 class="card-title">누적 수익률</h2><p class="card-sub" id="bt-chart-sub">&nbsp;</p></div>
+          <label class="switch"><input type="checkbox" id="bt-log"><span class="track"></span>로그 스케일</label>
+        </div>
+        <div class="bt-legend" id="bt-legend"></div>
+        <div class="chart-box"><canvas id="bt-chart" role="img" aria-label="누적 수익률 차트"></canvas></div>
+        <div class="card-sub" style="margin:14px 0 6px">낙폭 (고점 대비)</div>
+        <div class="chart-box dd"><canvas id="bt-dd" role="img" aria-label="낙폭 차트"></canvas></div>
+      </div>
+
+      <div class="card a-btcompare">
+        <div class="card-head"><div><h2 class="card-title">성과 비교</h2><p class="card-sub">굵은 값 = 해당 지표에서 가장 좋은 결과</p></div></div>
+        <div class="table-wrap" id="bt-compare"></div>
+      </div>
+
+      <div class="card a-btheat">
+        <div class="card-head"><div><h2 class="card-title">연·월별 수익률</h2><p class="card-sub" id="bt-heat-sub">전략 · 비용 차감 후</p></div></div>
+        <div class="table-wrap" id="bt-heat"></div>
+      </div>
+
+      <div class="card a-btrecs">
+        <div class="card-head"><div><h2 class="card-title">월별 리밸런싱 종목</h2><p class="card-sub">최신순 · 매매 비중 = 사고판 금액 / 총자산</p></div></div>
+        <div class="table-wrap" id="bt-recs"></div>
+        <div style="text-align:center;margin-top:10px"><button class="btn btn-ghost btn-sm" id="bt-more">더 보기</button></div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <!-- 설정 시트 -->
@@ -242,5 +318,6 @@
 
 <script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}?v={{ asset_v }}"></script>
+<script src="{{ url_for('static', filename='js/backtest.js') }}?v={{ asset_v }}"></script>
 </body>
 </html>

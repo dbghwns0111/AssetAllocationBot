@@ -32,7 +32,7 @@ def create_app(cfg: dict, notifier=None, scheduler=None) -> Flask:
         # CSS/JS 수정 시각을 주소에 붙여 브라우저가 옛 파일을 캐시로 쓰지 않게 한다
         try:
             v = int(max(os.path.getmtime(os.path.join(static_dir, f))
-                        for f in ("js/app.js", "css/app.css")))
+                        for f in ("js/app.js", "js/backtest.js", "css/app.css")))
         except OSError:
             v = 0
         return {"asset_v": v}

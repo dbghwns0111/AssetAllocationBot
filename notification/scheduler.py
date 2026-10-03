@@ -13,7 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import notify_repo
 from database.connection import backup_database
 from notification import message_builder as mb
-from strategy import haa, service
+from strategy import backtest_service, haa, service
 from utils.logger import get_logger
 
 _log = get_logger("notification.scheduler")
@@ -55,6 +55,9 @@ class HAAScheduler:
         self.sched.add_job(self._job_signal, "cron", minute=5, id="signal_check",
                            max_instances=1, coalesce=True, misfire_grace_time=600)
         self.sched.add_job(self._job_backup, "cron", hour=4, minute=30, id="db_backup",
+                           max_instances=1, coalesce=True, misfire_grace_time=3600)
+        # 기본 백테스트 결과 갱신 — 미국 장 마감(한국 05~06시) 이후, 새 달 확정분도 여기서 반영
+        self.sched.add_job(backtest_service.refresh_default, "cron", hour=6, minute=40, id="backtest_default",
                            max_instances=1, coalesce=True, misfire_grace_time=3600)
 
     def _job_signal(self):

@@ -28,8 +28,10 @@ CACHE_SECONDS = 30 * 60
 
 Series = list  # list[tuple[date, float]] — 날짜 오름차순
 
-_lock = threading.Lock()
-_cache: dict = {"ts": 0.0, "key": None, "data": None, "fetched_at": None}
+# 조회 조건(티커 묶음 + 기간)별 캐시 — 신호용(5y)과 백테스트용(max)이 서로 밀어내지 않게
+_cache: dict = {}            # key -> {"ts", "data", "fetched_at"}
+_locks: dict = {}            # key -> Lock (같은 조건의 동시 조회만 직렬화)
+_locks_guard = threading.Lock()
 
 
 def _fetch_one(session: requests.Session, ticker: str, range_: str) -> Series:
@@ -37,10 +39,13 @@ def _fetch_one(session: requests.Session, ticker: str, range_: str) -> Series:
     for attempt in range(3):
         url = _URLS[attempt % len(_URLS)].format(t=ticker)
         try:
-            r = session.get(url, params={
-                "range": range_, "interval": "1d",
-                "events": "div,splits", "includeAdjustedClose": "true",
-            }, timeout=15)
+            params = {"interval": "1d", "events": "div,splits", "includeAdjustedClose": "true"}
+            if range_ == "max":
+                # range=max 를 주면 Yahoo 가 월봉으로 바꿔 내려준다 → 기간을 직접 지정해 일봉 유지
+                params.update(period1=946684800, period2=int(time.time()))   # 2000-01-01 ~ 현재
+            else:
+                params["range"] = range_
+            r = session.get(url, params=params, timeout=30)
             r.raise_for_status()
             res = r.json()["chart"]["result"][0]
             offset = int(res["meta"].get("gmtoffset") or 0)
@@ -61,17 +66,19 @@ def _fetch_one(session: requests.Session, ticker: str, range_: str) -> Series:
     raise RuntimeError(f"{ticker} 가격 조회 실패: {last_err}")
 
 
-def fetch_prices(tickers: list[str], force: bool = False, range_: str = "5y") -> dict:
+def fetch_prices(tickers: list[str], force: bool = False, range_: str = "5y",
+                 ttl: float = CACHE_SECONDS) -> dict:
     """{"series": {ticker: Series}, "fetched_at": datetime, "stale": bool}
 
-    30분 메모리 캐시. 조회 실패 시 이전 캐시가 있으면 그것을 stale=True 로 반환.
+    조건별 메모리 캐시(기본 30분). 조회 실패 시 이전 캐시가 있으면 stale=True 로 반환.
     """
     key = (tuple(sorted(tickers)), range_)
-    with _lock:
-        fresh = (_cache["data"] is not None and _cache["key"] == key
-                 and time.time() - _cache["ts"] < CACHE_SECONDS)
-        if fresh and not force:
-            return {"series": _cache["data"], "fetched_at": _cache["fetched_at"], "stale": False}
+    with _locks_guard:
+        lock = _locks.setdefault(key, threading.Lock())
+    with lock:
+        entry = _cache.get(key)
+        if entry and not force and time.time() - entry["ts"] < ttl:
+            return {"series": entry["data"], "fetched_at": entry["fetched_at"], "stale": False}
 
         try:
             with requests.Session() as s:
@@ -80,11 +87,12 @@ def fetch_prices(tickers: list[str], force: bool = False, range_: str = "5y") ->
                     results = list(ex.map(lambda t: _fetch_one(s, t, range_), tickers))
             data = dict(zip(tickers, results))
         except Exception as e:
-            if _cache["data"] is not None and _cache["key"] == key:
+            if entry:
                 _log.warning("가격 조회 실패, 이전 캐시 사용: %s", e)
-                return {"series": _cache["data"], "fetched_at": _cache["fetched_at"], "stale": True}
+                return {"series": entry["data"], "fetched_at": entry["fetched_at"], "stale": True}
             raise
 
-        _cache.update(ts=time.time(), key=key, data=data, fetched_at=datetime.now())
-        _log.info("가격 조회 완료: %d종목", len(data))
-        return {"series": data, "fetched_at": _cache["fetched_at"], "stale": False}
+        entry = {"ts": time.time(), "data": data, "fetched_at": datetime.now()}
+        _cache[key] = entry
+        _log.info("가격 조회 완료: %d종목 (%s)", len(data), range_)
+        return {"series": data, "fetched_at": entry["fetched_at"], "stale": False}

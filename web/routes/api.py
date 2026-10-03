@@ -10,7 +10,7 @@ from flask import Blueprint, current_app, jsonify, request
 from database import notify_repo, record_repo
 from notification import message_builder as mb
 from notification.scheduler import KIND_SIGNAL, check_and_notify
-from strategy import haa, service
+from strategy import backtest_service, haa, service
 from utils.logger import get_logger
 
 _log = get_logger("web.api")
@@ -39,6 +39,25 @@ def history():
     except Exception as e:
         _log.exception("신호 이력 계산 실패")
         return _err(f"신호 이력 계산 실패: {e}", 502)
+
+
+@api_bp.get("/backtest")
+def backtest():
+    """파라미터 없으면 미리 계산된 기본 결과. slippage 는 퍼센트 단위(0.10 = 0.10%)."""
+    a = request.args
+    params = {k: a.get(k) for k in ("strategy", "start", "end", "cash", "currency", "bench")}
+    if a.get("slippage") not in (None, ""):
+        try:
+            params["slippage"] = float(a["slippage"]) / 100
+        except ValueError:
+            return _err("슬리피지 값이 숫자가 아닙니다.")
+    try:
+        return jsonify(backtest_service.get(params))
+    except ValueError as e:
+        return _err(str(e))
+    except Exception as e:
+        _log.exception("백테스트 실패")
+        return _err(f"백테스트 실패: {e}", 502)
 
 
 # ── 리밸런싱 기록 ────────────────────────────────────────────────────────────

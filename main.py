@@ -18,6 +18,7 @@ from database.models import create_tables
 from notification.scheduler import HAAScheduler
 from notification.telegram import TelegramNotifier
 from notification.telegram_handler import TelegramCommandHandler
+from strategy import backtest_service
 from utils.logger import get_logger, setup_logging
 from web.app import create_app
 
@@ -50,6 +51,7 @@ def main() -> int:
 
     sched.start()
     TelegramCommandHandler(notifier).start()
+    backtest_service.refresh_default_async()   # 웹 접속 즉시 기본 백테스트를 보여주기 위해 미리 계산
     log.info("Asset Allocation 시작: http://%s:%s (텔레그램 %s)",
              host, port, "사용" if notifier.enabled else "미설정")
     try:

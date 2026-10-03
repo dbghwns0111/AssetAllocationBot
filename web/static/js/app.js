@@ -113,7 +113,7 @@ function setView(view, push = true) {
   const [v, sub] = String(view || '').split('/');
   view = v;
   if (sub === 'mine' || sub === 'history') S.recSub = sub;
-  if (!['signal', 'rebalance', 'records'].includes(view)) view = 'signal';
+  if (!['signal', 'rebalance', 'records', 'backtest'].includes(view)) view = 'signal';
   S.view = view;
   $$('.view').forEach((v) => v.classList.toggle('on', v.id === `view-${view}`));
   $$('[data-view]').forEach((b) => { if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
@@ -122,6 +122,7 @@ function setView(view, push = true) {
   scrollTo({ top: 0 });
   hideTip();
   if (view === 'records') renderRecordsView();
+  if (view === 'backtest') window.renderBacktestView?.();   // backtest.js
 }
 
 /* ══ 이번 달 ════════════════════════════════════════════════════════════════ */
@@ -667,6 +668,7 @@ function syncThemeSeg() {
 }
 function rerenderCharts() {
   if (S.view === 'records') renderRecordsView();
+  if (S.view === 'backtest') window.renderBacktestView?.();
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', rerenderCharts);
 

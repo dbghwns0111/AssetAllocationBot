@@ -46,15 +46,19 @@ config/loader.py             .env → cfg dict (싱글턴)
 market/prices.py             Yahoo chart API 일별 수정종가, 30분 캐시, 실패 시 이전 캐시(stale=True)
 strategy/haa.py              순수 함수: 월말표, 13612U, allocate, 월말 확정 판정, 신호/이력
 strategy/service.py          가격 조회 + 뉴욕 현재시각 주입
+strategy/backtest.py         백테스트 엔진(순수 함수): STRATEGIES 등록, run(), metrics(), heatmap()
+strategy/benchmarks.py       고정 비중 벤치마크 6종 + fixed_signal()
+strategy/backtest_service.py 가격(max 일봉) 조회 + 파라미터 검증(normalize) + 결과 조립 + 기본 결과 캐시
 database/                    connection(WAL, 백업, 무결성) · models(DDL) · record_repo · auth_repo · notify_repo
 notification/telegram.py     자산배분 전용 봇 클라이언트 (HTML 전송, 400 이면 평문 재전송)
 notification/message_builder.py  모든 메시지는 card() 경유 (이스케이프 일원화, <pre> 폭 36칸)
-notification/scheduler.py    APScheduler: 매시 05분 신호 점검(check_and_notify), 04:30 DB 백업
+notification/scheduler.py    APScheduler: 매시 05분 신호 점검(check_and_notify), 04:30 DB 백업, 06:40 기본 백테스트 갱신
 notification/telegram_handler.py  long-polling 명령어 (/signal /preview /momentum /last /help), 설정된 chat_id 만 응답
 web/app.py · auth.py         Flask 팩토리, 로그인/CSRF/IP 화이트리스트/브루트포스(5회→10분 잠금)
 web/routes/api.py            REST API
 web/templates/index.html     단일 페이지 (뷰 3개 + 설정 시트 + 다이얼로그)
 web/static/js/app.js         프론트 로직 (프레임워크 없음), Chart.js 4.4.1 로컬 번들
+web/static/js/backtest.js    백테스트 화면 (app.js 의 공용 헬퍼·전역 S 를 사용, app.js 다음에 로드)
 web/static/css/app.css       디자인 토큰 + 컴포넌트
 scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / deploy (bat 은 ps1 을 UTF-8 로 읽어 실행)
 ```
@@ -68,6 +72,22 @@ scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / de
 - 기본은 직전 확정 월 신호, `partial=1` 이면 진행 중인 달 최신가로 미리보기.
 - `compute_signal` 은 지난달 신호(`prev`)와 편입/제외(`added`/`removed`)도 반환.
 - **BIL → 현금 (사용자 운용 방식)**: 신호에는 BIL 그대로 표시하되 사용자는 BIL 을 사지 않고 같은 비중을 달러 현금으로 보유한다. `haa.CASH_PROXY = "BIL"`, 신호 응답에 `cash_proxy`, `cash_weight` 포함. 계산기는 `buyWeight()` 로 BIL 목표를 0 으로 두고 현금 카드에 목표 현금 표시(보유 BIL 은 매도로 표시). 텔레그램 메시지에 "→ 현금" 과 안내 문구. 신호 이력 수익률은 전략 그대로 BIL 수익률로 계산(현금 이자와 차이 있음).
+
+### 백테스트 (`strategy/backtest*.py`, `#backtest` 화면)
+- **엔진은 전략 독립**: `STRATEGIES[key] = {name, tickers, signal(mt, i) -> {weights, mode} | None, cash_proxy}`. BAA·LAA 추가 시 여기에 등록.
+- 월 i 종가로 신호 → 같은 종가 체결 → 월 i+1 보유. 시작은 전액 현금.
+- **슬리피지 한 값** (사용자 결정, 수수료 포함 개념): 비용 = slippage × Σ|목표 − 드리프트 비중| (현금 제외, 매수·매도 양쪽). 드리프트 = 직전 비중이 한 달 수익률로 변한 값.
+- `cash="cash"`(기본): 신호의 BIL 비중을 현금 0% 로 (실제 운용 방식). `"bil"`: BIL 수익률. 벤치마크는 항상 실제 BIL.
+- `currency="krw"`: (1+r_usd)·(환율_t/환율_{t-1}) − 1, 환율 = Yahoo `KRW=X`.
+- 지표: CAGR, 총수익률, 연변동성, Sharpe(무위험 = BIL 월수익률, √12), Sortino, MDD(+고점/저점/회복 월), Calmar, 최고/최저 월, 월 승률, 연 매매 비중(Σ|Δw|/년), 비용 영향(비용 전후 CAGR 차), 방어 모드 비율. 월말 기준이라 월중 낙폭 미반영.
+- 벤치마크 (`benchmarks.py`, 같은 엔진·같은 슬리피지·매월 리밸런싱): spy, qqq, 6040, allweather(간이), permanent, ew8.
+- 데이터: `fetch_prices(..., range_="max", ttl=6h)`. **Yahoo 는 `range=max` 면 월봉으로 바꿔 준다** → `period1/period2` 로 2000-01-01~현재 일봉을 요청. 실질 시작은 BIL 상장 + 12개월 lookback → 2008-08.
+- 가격 캐시는 조건(티커 묶음, 기간)별 dict — 신호용 5y 와 백테스트용 max 가 서로 밀어내지 않음.
+- **실행 방식 (사용자 요청: 일반 백테스트 프로그램처럼)**: 기본 조건(HAA·전체·0.10%·현금·USD·spy+6040) 결과는 서버 시작 시 백그라운드로 미리 계산(`refresh_default_async`) + 매일 06:40 갱신(스케줄러 `backtest_default`). 프론트는 앱 로드 1.2초 후 미리 받아 둠 → 탭을 열면 즉시 표시. 조건을 바꾸면 "조건이 변경되었습니다" + 실행 버튼 강조만, **[백테스트 실행]** 을 눌러야 재계산. [기본값으로] 는 캐시된 기본 결과로 즉시 복귀.
+- API `GET /api/backtest?strategy&start&end&slippage(%단위)&cash&currency&bench(쉼표, 빈 값 = 없음)`. 파라미터 없으면 기본 결과. `start/end` 는 "수익률이 발생하는 월" 기준.
+- 차트 색: dataviz 검증 팔레트 1~7번 순서 고정 (`--s-1` 전략, `--s-2..7` = spy, qqq, 6040, allweather, permanent, ew8). 다른 순서는 색각 검증 실패했음 (빨강·초록 인접 등). 누적 차트 y축은 `niceAxis()` 로 직접 계산 (Chart.js 기본은 −200% 까지 늘어났음).
+- 히트맵: 다이버징(하락 파랑 ↔ 회색 ↔ 상승 빨강), 월 ±6%, 연간 ±30% 대칭 도메인, 배경 휘도로 글자색 선택.
+- UI 상호작용 검증: Node 22 내장 WebSocket 으로 Chrome DevTools Protocol 을 직접 구동 (puppeteer 없이). 기본 표시 → 조건 변경 시 미실행 → 실행 → 벤치마크 0개 → 로그축 → 기본값 복귀 흐름 확인.
 
 ### 텔레그램 신호 알림 (`notification/scheduler.py::check_and_notify`)
 - 매시 05분 점검. 이번 뉴욕 월 신호를 이미 보냈고 오늘이 월말 마지막 평일이 아니면 가격 조회 없이 건너뜀.
@@ -83,6 +103,7 @@ POST   /api/records                      저장 (서버에서 검증·total/weig
 PATCH  /api/records/<id>                 메모 수정
 DELETE /api/records/<id>
 GET    /api/system                       텔레그램 상태, 마지막 신호 발송, 다음 점검 시각
+GET    /api/backtest?...                 백테스트 (위 "백테스트" 절 참고)
 POST   /api/telegram/test | /api/telegram/signal
 ```
 오류는 `{"ok": false, "error": "..."}`. 로그인 활성 시 POST/PATCH/DELETE 는 `X-CSRF-Token` 필수 (프론트 `api()` 가 자동 부여).
@@ -93,7 +114,7 @@ POST   /api/telegram/test | /api/telegram/signal
 - `notify_log(kind, key, detail, sent_at, PK(kind,key))`
 
 ### 프론트 (`web/static/js/app.js`, `css/app.css`)
-- 화면: `#signal` / `#rebalance` / `#records/mine|history` (해시 라우팅). PC 는 앱바 세그먼트 탭, 720px 이하는 하단 플로팅 탭바. 설정은 오른쪽 시트.
+- 화면: `#signal` / `#rebalance` / `#records/mine|history` / `#backtest` (해시 라우팅). PC 는 앱바 세그먼트 탭, 720px 이하는 하단 플로팅 탭바. 설정은 오른쪽 시트.
 - **전체 폭 반응형** (사용자 요청: 가운데 좁은 세로형 금지): `main` 폭 제한 없음, 여백 `--gutter`=clamp. 각 화면은 `.layout` + `grid-template-areas` 로 폭 구간별 재배치
   - 이번 달 `.sig-layout`: ≤720 1단 / 721+ 2단 / 1200+ 3단 / 1600+ 4단(모멘텀 막대 + 기간별 수익률 표를 나란히, 토글 숨김)
   - 리밸런싱 `.rb-layout`: 1100+ 본문 + 오른쪽 sticky 요약 (`grid-template-rows: auto 1fr`), 주문 카드는 auto-fill(최소 330px)
