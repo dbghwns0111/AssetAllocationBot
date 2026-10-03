@@ -33,13 +33,13 @@ def test_canary_negative_goes_full_defensive():
     g.update(TIP=-0.01, BIL=0.003, IEF=-0.005)
     sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
     assert sig["mode"] == "defensive"
-    assert sig["weights"] == {"BIL": 1.0}
+    assert sig["weights"] == {"CASH": 1.0}          # 현금(BIL 모멘텀) > IEF
     assert sig["apply_month"] == "2026-10"
 
 
 def test_offensive_top4_equal_weight():
     g = {"TIP": 0.01, "BIL": 0.002, "SPY": 0.05, "IWM": 0.04, "VEA": 0.03, "VWO": 0.025,
-         "VNQ": 0.01, "DBC": 0.005, "IEF": 0.004, "TLT": 0.001}
+         "VNQ": 0.01, "PDBC": 0.005, "IEF": 0.004, "TLT": 0.001}
     sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
     assert sig["mode"] == "offensive"
     assert sig["weights"] == {"IWM": 0.25, "SPY": 0.25, "VEA": 0.25, "VWO": 0.25}
@@ -49,7 +49,7 @@ def test_offensive_top4_equal_weight():
 def test_negative_momentum_in_top4_replaced_by_best_defensive():
     # 공격자산 대부분 음수 → 상위 4개 중 일부가 음수, 그 몫은 BIL/IEF 중 나은 쪽
     g = {"TIP": 0.01, "BIL": 0.001, "IEF": 0.003, "SPY": 0.02, "IWM": 0.01,
-         "VEA": -0.01, "VWO": -0.02, "VNQ": -0.03, "DBC": -0.04, "TLT": -0.05}
+         "VEA": -0.01, "VWO": -0.02, "VNQ": -0.03, "PDBC": -0.04, "TLT": -0.05}
     sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
     assert sig["mode"] == "mixed"
     assert sig["defensive_asset"] == "IEF"
@@ -97,12 +97,20 @@ def test_history_returns_follow_signal_weights():
     assert rows[1]["return"] == pytest.approx(0.01)
 
 
-def test_cash_proxy_weight_reported():
-    # BIL 이 선택되면 그 비중이 cash_weight 로 내려가 화면/계산기가 현금으로 처리한다
+def test_defensive_ief_vs_cash_uses_bil_momentum():
+    # 방어자산 = IEF vs 현금, 현금 모멘텀은 BIL 로 비교
     g = {t: 0.02 for t in haa.ALL_TICKERS}
     g.update(TIP=-0.01, BIL=0.003, IEF=-0.005)
     sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
-    assert sig["cash_proxy"] == "BIL" and sig["cash_weight"] == 1.0
-    g.update(TIP=0.01)
+    assert sig["defensive_asset"] == "CASH" and sig["cash_weight"] == 1.0
+    g.update(BIL=0.001, IEF=0.004)                  # IEF 모멘텀이 더 높으면 IEF
     sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
-    assert sig["cash_weight"] == 0.0
+    assert sig["weights"] == {"IEF": 1.0} and sig["cash_weight"] == 0.0
+    g.update(TIP=0.01)                              # 카나리아 양호 → 공격, 현금 없음
+    sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
+    assert sig["cash_weight"] == 0.0 and "DBC" not in sig["weights"]
+
+
+def test_universe():
+    assert haa.OFFENSIVE == ["SPY", "IWM", "VEA", "VWO", "IEF", "TLT", "PDBC", "VNQ"]
+    assert haa.DEFENSIVE == ["IEF", "CASH"] and haa.CANARY == "TIP"

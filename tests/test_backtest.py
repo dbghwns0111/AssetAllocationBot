@@ -49,14 +49,16 @@ def test_drift_reduces_rebalancing_trade():
     assert recs[1]["traded"] == pytest.approx(2 * (w_spy - 0.5))
 
 
-def test_cash_mode_zeroes_bil_return():
+def test_cash_signal_modes():
     mt = _mt({"BIL": 0.01})
-    sig = fixed_signal({"BIL": 1.0})
-    bil = bt.run(mt, sig, 12, 24, slippage=0.0, cash_mode="bil")
+    sig = lambda mt_, i: {"weights": {"CASH": 1.0}, "mode": "defensive"}
     cash = bt.run(mt, sig, 12, 24, slippage=0.001, cash_mode="cash")
-    assert bil[-1]["equity"] == pytest.approx(1.01 ** 12)
-    assert all(r["ret"] == 0 for r in cash)               # 현금은 매수 비용도 없음
+    assert all(r["ret"] == 0 for r in cash)               # 달러 현금: 수익 0, 매매비용 없음
     assert all(r["traded"] == 0 for r in cash)
+    bil = bt.run(mt, sig, 12, 24, slippage=0.0, cash_mode="bil")
+    assert bil[-1]["equity"] == pytest.approx(1.01 ** 12)  # BIL 을 사서 보유
+    bil_cost = bt.run(mt, sig, 12, 13, slippage=0.001, cash_mode="bil")
+    assert bil_cost[0]["traded"] == pytest.approx(1.0)
 
 
 def test_krw_conversion():

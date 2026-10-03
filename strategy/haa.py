@@ -1,9 +1,10 @@
 """HAA (Hybrid Asset Allocation) — Wouter Keller & Jan Willem Keuning (2023).
 
 - 카나리아: TIP. 13612U 모멘텀 ≤ 0 이면 100% 방어자산.
-- 공격자산: SPY, IWM, VEA, VWO, VNQ, DBC, IEF, TLT 중 모멘텀 상위 4개 (각 25%).
+- 공격자산: SPY, IWM, VEA, VWO, IEF, TLT, PDBC, VNQ 중 모멘텀 상위 4개 (각 25%).
   상위 4개 중 모멘텀 ≤ 0 인 자산의 비중은 방어자산으로 대체.
-- 방어자산: BIL, IEF 중 모멘텀이 더 높은 하나.
+- 방어자산: IEF, 현금(CASH) 중 모멘텀이 더 높은 하나.
+  현금의 모멘텀은 단기국채 BIL 의 모멘텀으로 본다 (원 HAA 의 BIL 비교와 같음, 보유만 현금).
 - 13612U = (1개월 + 3개월 + 6개월 + 12개월 수익률) / 4  (가중치 없음)
 
 이 모듈은 네트워크/시계에 의존하지 않는 순수 함수만 둔다 (테스트 용이).
@@ -16,15 +17,18 @@ import calendar
 from datetime import date, datetime, time, timedelta
 
 CANARY = "TIP"
-OFFENSIVE = ["SPY", "IWM", "VEA", "VWO", "VNQ", "DBC", "IEF", "TLT"]
-DEFENSIVE = ["BIL", "IEF"]
+OFFENSIVE = ["SPY", "IWM", "VEA", "VWO", "IEF", "TLT", "PDBC", "VNQ"]
+CASH = "CASH"                             # 현금(USD) — 가격 없음, 수익률 0
+CASH_MOMENTUM = "BIL"                     # 현금의 모멘텀 비교 기준 (단기국채)
+DEFENSIVE = ["IEF", CASH]
 TOP_N = 4
 LOOKBACKS = (1, 3, 6, 12)
-ALL_TICKERS = sorted(set(OFFENSIVE + DEFENSIVE + [CANARY]))
-TRADABLE = OFFENSIVE + ["BIL"]           # 실제 매매 대상 (TIP 은 신호용)
+ALL_TICKERS = sorted(set(OFFENSIVE + [CANARY, CASH_MOMENTUM]))   # 신호 계산에 필요한 가격
+LEGACY = ["BIL", "DBC"]                   # 예전 유니버스 — 보유 중이면 리밸런싱 화면에서 매도 가능
+FETCH_TICKERS = sorted(set(ALL_TICKERS + LEGACY))
+TRADABLE = OFFENSIVE + LEGACY             # 리밸런싱 화면/기록에 쓸 수 있는 종목
 MASTER = "SPY"                            # 월 달력 기준 종목
-# 신호에는 BIL 로 표시하되, 실제로는 매수하지 않고 같은 비중을 현금(USD)으로 보유한다 (사용자 운용 방식)
-CASH_PROXY = "BIL"
+CASH_PROXY = CASH                         # (호환) 화면에서 현금으로 취급하는 키
 
 NAMES = {
     "SPY": "미국 대형주",
@@ -32,10 +36,12 @@ NAMES = {
     "VEA": "선진국 주식",
     "VWO": "신흥국 주식",
     "VNQ": "미국 리츠",
-    "DBC": "원자재",
+    "PDBC": "원자재",
+    "DBC": "원자재 (구 종목)",
     "IEF": "미국 중기채 7-10년",
     "TLT": "미국 장기채 20년+",
-    "BIL": "미국 초단기채 (현금성)",
+    "BIL": "미국 초단기채 (현금 비교용)",
+    "CASH": "현금 (USD)",
     "TIP": "물가연동채 (카나리아)",
 }
 
@@ -112,7 +118,8 @@ def allocate(mom: dict) -> dict:
     if missing:
         raise ValueError(f"모멘텀 계산 불가 (데이터 부족): {', '.join(missing)}")
 
-    defensive = max(DEFENSIVE, key=lambda t: mom[t])
+    def_mom = {"IEF": mom["IEF"], CASH: mom[CASH_MOMENTUM]}
+    defensive = max(DEFENSIVE, key=lambda t: def_mom[t])
     canary_on = mom[CANARY] > 0
     ranking = sorted(OFFENSIVE, key=lambda t: mom[t], reverse=True)
     weights: dict = {}
@@ -135,6 +142,7 @@ def allocate(mom: dict) -> dict:
         "canary_momentum": mom[CANARY],
         "canary_on": canary_on,
         "defensive_asset": defensive,
+        "defensive_momentum": def_mom,
         "top": top,
         "ranking": ranking,
         "weights": {k: round(v, 4) for k, v in sorted(weights.items(), key=lambda x: (-x[1], x[0]))},
@@ -183,6 +191,8 @@ def compute_signal(prices: dict, now_ny: datetime, use_partial: bool = False) ->
             role.append("공격")
         if t in DEFENSIVE:
             role.append("방어")
+        if t == CASH_MOMENTUM:
+            role.append("현금 비교")
         assets.append({
             "ticker": t,
             "name": NAMES.get(t, t),
@@ -206,7 +216,7 @@ def compute_signal(prices: dict, now_ny: datetime, use_partial: bool = False) ->
         "prev": {"apply_month": _apply_month(mt["dates"][i - 1]), "mode": prev["mode"],
                  "weights": prev["weights"]},
         "cash_proxy": CASH_PROXY,
-        "cash_weight": alloc["weights"].get(CASH_PROXY, 0.0),
+        "cash_weight": alloc["weights"].get(CASH, 0.0),
         "added": sorted(cur_w - prev_w),
         "removed": sorted(prev_w - cur_w),
         **alloc,
@@ -226,7 +236,7 @@ def signal_history(prices: dict, now_ny: datetime, months: int = 24) -> list:
         ret = None
         if i + 1 <= last_idx:
             ret = sum(w * (mt["close"][t][i + 1] / mt["close"][t][i] - 1)
-                      for t, w in alloc["weights"].items())
+                      for t, w in alloc["weights"].items() if t != CASH)   # 현금은 0%
         rows.append({
             "asof": mt["dates"][i].isoformat(),
             "apply_month": _apply_month(mt["dates"][i]),

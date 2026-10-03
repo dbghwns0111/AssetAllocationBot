@@ -624,3 +624,11 @@ table.heat { border-collapse: separate; border-spacing: 2px; width: 100%; font-v
   .chip-btn small { display: none; }
   .heat td { min-width: 36px; padding: 6px 2px; font-size: 11.5px; }
 }
+
+.bt-proxy { margin: 8px 0 0; line-height: 1.6; }
+.bt-proxy b { color: var(--ink-2); }
+
+/* PDBC 는 기존 원자재(DBC) 색을 그대로 사용 — 테마별 값은 --t-DBC 를 따라감 */
+:root { --t-PDBC: var(--t-DBC); }
+.bt-range .input { flex: 1 1 150px; min-width: 140px; }
+@media (min-width: 900px) { .bt-form > .field:first-child { grid-column: span 2; } }

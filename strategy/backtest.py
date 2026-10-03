@@ -4,7 +4,8 @@
 - 월 i 종가로 신호를 계산하고 같은 종가에 체결, 월 i+1 동안 보유 (HAA 원 논문 방식).
 - 거래비용: 슬리피지 한 값. 비용 = slippage × Σ|목표 비중 − 드리프트 비중| (현금 제외).
   매수·매도 양쪽에 부과되며, 시작 시점은 전액 현금에서 매수하는 것으로 본다.
-- cash_mode="cash": 신호의 BIL 비중을 현금(수익률 0)으로 보유 — 사용자 실제 운용 방식.
+- 신호의 현금(CASH) 비중: cash_mode="cash" 면 수익률 0 (사용자 실제 운용, 매매비용 없음),
+  "bil" 이면 단기국채 BIL 을 사서 보유하는 것으로 계산 (BIL 수익률 + 매매비용).
 - currency="krw": 달러 수익률에 원/달러 환율 변화를 곱한다 (달러 현금도 환율 영향을 받음).
 - 월말 종가 기준이라 MDD 는 월중 낙폭을 반영하지 않는다.
 
@@ -18,7 +19,7 @@ from statistics import mean, stdev
 
 from strategy import haa
 
-CASH = "CASH"
+CASH = haa.CASH
 
 
 # ── 전략 등록 ────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ def _haa_signal(mt: dict, i: int):
 
 STRATEGIES = {
     "haa": {"name": "HAA", "desc": "Hybrid Asset Allocation (Keller & Keuning)",
-            "tickers": haa.ALL_TICKERS, "signal": _haa_signal, "cash_proxy": haa.CASH_PROXY},
+            "tickers": haa.ALL_TICKERS, "signal": _haa_signal},
 }
 
 
@@ -65,7 +66,7 @@ def _ret(mt: dict, t: str, j: int) -> float:
 
 
 def run(mt: dict, signal_fn, start_i: int, end_i: int, slippage: float = 0.0,
-        cash_mode: str = "cash", cash_proxy: str = "BIL", fx: str | None = None) -> list:
+        cash_mode: str = "cash", fx: str | None = None) -> list:
     """월 start_i 종가에 시작해 end_i 종가까지. 반환: 월별 기록 리스트 (월 start_i+1 … end_i).
 
     fx: 원화 환산 시 환율 티커 (예: "KRW=X"), 없으면 USD.
@@ -81,7 +82,7 @@ def run(mt: dict, signal_fn, start_i: int, end_i: int, slippage: float = 0.0,
             raise ValueError(f"{month_label(mt['months'][i])} 신호를 계산할 수 없습니다.")
         target = {}
         for t, w in sig["weights"].items():
-            key = CASH if (cash_mode == "cash" and t == cash_proxy) else t
+            key = "BIL" if (t == CASH and cash_mode == "bil") else t
             target[key] = target.get(key, 0.0) + w
 
         traded = sum(abs(target.get(t, 0.0) - drift.get(t, 0.0))

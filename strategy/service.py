@@ -16,7 +16,7 @@ def now_ny() -> datetime:
 
 
 def _prices(force: bool = False) -> dict:
-    return fetch_prices(haa.ALL_TICKERS, force=force)
+    return fetch_prices(haa.FETCH_TICKERS, force=force)
 
 
 def get_signal(use_partial: bool = False, force: bool = False) -> dict:

@@ -48,7 +48,8 @@ strategy/haa.py              순수 함수: 월말표, 13612U, allocate, 월말 
 strategy/service.py          가격 조회 + 뉴욕 현재시각 주입
 strategy/backtest.py         백테스트 엔진(순수 함수): STRATEGIES 등록, run(), metrics(), heatmap()
 strategy/benchmarks.py       고정 비중 벤치마크 6종 + fixed_signal()
-strategy/backtest_service.py 가격(max 일봉) 조회 + 파라미터 검증(normalize) + 결과 조립 + 기본 결과 캐시
+strategy/backtest_service.py 가격(max 일봉) 조회 + 대체 데이터 이어붙이기 + 파라미터 검증(normalize) + 결과 조립 + 기본 결과 캐시
+market/splice.py             ETF 상장 전 구간을 대체 데이터로 이어 붙임 (CHAINS, ^IRX 금리→지수)
 database/                    connection(WAL, 백업, 무결성) · models(DDL) · record_repo · auth_repo · notify_repo
 notification/telegram.py     자산배분 전용 봇 클라이언트 (HTML 전송, 400 이면 평문 재전송)
 notification/message_builder.py  모든 메시지는 card() 경유 (이스케이프 일원화, <pre> 폭 36칸)
@@ -64,26 +65,32 @@ scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / de
 ```
 
 ### 전략 로직 (`strategy/haa.py`)
-- 유니버스: 카나리아 `TIP`, 공격 `SPY IWM VEA VWO VNQ DBC IEF TLT`, 방어 `BIL IEF`. 매매 대상 `TRADABLE` = 공격 + BIL.
+- 유니버스 (사용자 지정, 2026-10-03 변경): 카나리아 `TIP`, 공격 `SPY IWM VEA VWO IEF TLT PDBC VNQ`, 방어 `IEF`·`CASH`.
+  - `CASH` = 달러 현금 (가격 없음, 수익률 0). **현금의 모멘텀은 단기국채 `BIL` 모멘텀으로 비교** (사용자 선택 — 원 HAA 의 BIL 비교와 동일, 보유만 현금). `allocate()` 의 `def_mom`.
+  - 신호 계산용 티커 `ALL_TICKERS` = 공격 + TIP + BIL. `LEGACY = BIL, DBC` (예전 유니버스) 는 가격만 받아 리밸런싱 화면에서 **보유 중일 때만 매도 대상으로** 표시. `TRADABLE` = 공격 + LEGACY.
+  - 이전에는 DBC·BIL 이었고 BIL 비중을 "현금으로 보유"하도록 화면에서 바꿔 보여줬으나, 이제 신호 자체가 `CASH` 를 낸다 (`CASH_PROXY = CASH` 는 호환용).
 - 월 달력은 SPY 기준, 각 월 마지막 거래일 종가. 13612U = (r1+r3+r6+r12)/4.
-- TIP ≤ 0 → 방어 100%. 아니면 공격 상위 4개 25%씩, 그중 ≤ 0 은 방어자산으로 (같은 종목 비중 합산). 방어자산 = BIL/IEF 중 모멘텀 높은 쪽.
+- TIP ≤ 0 → 방어 100%. 아니면 공격 상위 4개 25%씩, 그중 ≤ 0 은 방어자산으로 (같은 종목 비중 합산). 방어자산 = IEF / 현금(BIL 모멘텀) 중 높은 쪽.
+- 신호 이력 수익률에서 현금은 0%.
 - mode: `offensive` / `mixed` / `defensive`.
 - **월말 확정 판정** `month_complete()` (뉴욕 시각 기준): 뉴욕 날짜가 다음 달이면 확정. 같은 달이면 데이터가 그 달 마지막 평일이고 16:15 이후일 때만 확정. 휴장으로 끝나는 달은 다음 달 0시에 확정.
 - 기본은 직전 확정 월 신호, `partial=1` 이면 진행 중인 달 최신가로 미리보기.
 - `compute_signal` 은 지난달 신호(`prev`)와 편입/제외(`added`/`removed`)도 반환.
-- **BIL → 현금 (사용자 운용 방식)**: 신호에는 BIL 그대로 표시하되 사용자는 BIL 을 사지 않고 같은 비중을 달러 현금으로 보유한다. `haa.CASH_PROXY = "BIL"`, 신호 응답에 `cash_proxy`, `cash_weight` 포함. 계산기는 `buyWeight()` 로 BIL 목표를 0 으로 두고 현금 카드에 목표 현금 표시(보유 BIL 은 매도로 표시). 텔레그램 메시지에 "→ 현금" 과 안내 문구. 신호 이력 수익률은 전략 그대로 BIL 수익률로 계산(현금 이자와 차이 있음).
+- 현금: 신호 응답의 `cash_weight` = CASH 비중. 계산기는 현금 카드에 목표 현금 표시, CASH 는 매수 대상 아님(`buyWeight`). 화면·텔레그램에서 `CASH` 는 "현금" 으로 표기 (`tlabel()`, `_label()`).
 
 ### 백테스트 (`strategy/backtest*.py`, `#backtest` 화면)
 - **엔진은 전략 독립**: `STRATEGIES[key] = {name, tickers, signal(mt, i) -> {weights, mode} | None, cash_proxy}`. BAA·LAA 추가 시 여기에 등록.
 - 월 i 종가로 신호 → 같은 종가 체결 → 월 i+1 보유. 시작은 전액 현금.
 - **슬리피지 한 값** (사용자 결정, 수수료 포함 개념): 비용 = slippage × Σ|목표 − 드리프트 비중| (현금 제외, 매수·매도 양쪽). 드리프트 = 직전 비중이 한 달 수익률로 변한 값.
-- `cash="cash"`(기본): 신호의 BIL 비중을 현금 0% 로 (실제 운용 방식). `"bil"`: BIL 수익률. 벤치마크는 항상 실제 BIL.
+- `cash="cash"`(기본): 신호의 CASH 를 수익률 0%·매매비용 없음으로. `"bil"`: CASH 를 단기국채 BIL 매수로 계산(BIL 수익률 + 비용). 벤치마크의 BIL 은 항상 실제 BIL.
+- **대체 데이터 (`market/splice.py`, `data="proxy"` 기본 / `"etf"`)**: ETF 상장 전 구간을 인덱스펀드·지수의 일별 수익률로 거슬러 이어 붙인다 (`CHAINS`). TIP→VIPSX(2000-06) 가 가장 늦어 시작은 **2001-07**. PDBC→DBC→PCRIX→^SPGSCI, BIL→^IRX(금리를 일할 이자로 누적한 지수), GLD→GC=F, 주식·채권→뱅가드 펀드. `^SPGSCI` 는 **현물** 지수라 2002-06 이전 원자재는 근사치. ETF 실데이터만이면 PDBC 때문에 2015-12 시작. 원화 모드는 KRW=X(2003-12) 때문에 2004-01 시작.
+  - 응답 `meta.proxies` (종목별 실제 ETF 시작월·대체 출처), `meta.proxy_until` → 차트에 회색 음영(`proxyShade` 플러그인) + 하단 설명.
 - `currency="krw"`: (1+r_usd)·(환율_t/환율_{t-1}) − 1, 환율 = Yahoo `KRW=X`.
 - 지표: CAGR, 총수익률, 연변동성, Sharpe(무위험 = BIL 월수익률, √12), Sortino, MDD(+고점/저점/회복 월), Calmar, 최고/최저 월, 월 승률, 연 매매 비중(Σ|Δw|/년), 비용 영향(비용 전후 CAGR 차), 방어 모드 비율. 월말 기준이라 월중 낙폭 미반영.
-- 벤치마크 (`benchmarks.py`, 같은 엔진·같은 슬리피지·매월 리밸런싱): spy, qqq, 6040, allweather(간이), permanent, ew8.
-- 데이터: `fetch_prices(..., range_="max", ttl=6h)`. **Yahoo 는 `range=max` 면 월봉으로 바꿔 준다** → `period1/period2` 로 2000-01-01~현재 일봉을 요청. 실질 시작은 BIL 상장 + 12개월 lookback → 2008-08.
+- 벤치마크 (`benchmarks.py`, 같은 엔진·같은 슬리피지·매월 리밸런싱): spy, qqq, 6040, allweather(간이, 원자재=PDBC), permanent, ew8(= HAA 공격자산 8종).
+- 데이터: `fetch_prices(splice.chain_tickers(...), range_="max", ttl=6h)` — 대체 데이터 체인까지 한 번에 받아 캐시 공유. **Yahoo 는 `range=max` 면 월봉으로 바꿔 준다** → `period1/period2` 로 2000-01-01~현재 일봉을 요청.
 - 가격 캐시는 조건(티커 묶음, 기간)별 dict — 신호용 5y 와 백테스트용 max 가 서로 밀어내지 않음.
-- **실행 방식 (사용자 요청: 일반 백테스트 프로그램처럼)**: 기본 조건(HAA·전체·0.10%·현금·USD·spy+6040) 결과는 서버 시작 시 백그라운드로 미리 계산(`refresh_default_async`) + 매일 06:40 갱신(스케줄러 `backtest_default`). 프론트는 앱 로드 1.2초 후 미리 받아 둠 → 탭을 열면 즉시 표시. 조건을 바꾸면 "조건이 변경되었습니다" + 실행 버튼 강조만, **[백테스트 실행]** 을 눌러야 재계산. [기본값으로] 는 캐시된 기본 결과로 즉시 복귀.
+- **실행 방식 (사용자 요청: 일반 백테스트 프로그램처럼)**: 기본 조건(HAA·전체·0.10%·현금 0%·USD·대체 데이터 포함·spy+6040) 결과는 서버 시작 시 백그라운드로 미리 계산(`refresh_default_async`) + 매일 06:40 갱신(스케줄러 `backtest_default`). 프론트는 앱 로드 1.2초 후 미리 받아 둠 → 탭을 열면 즉시 표시. 조건을 바꾸면 "조건이 변경되었습니다" + 실행 버튼 강조만, **[백테스트 실행]** 을 눌러야 재계산. [기본값으로] 는 캐시된 기본 결과로 즉시 복귀.
 - API `GET /api/backtest?strategy&start&end&slippage(%단위)&cash&currency&bench(쉼표, 빈 값 = 없음)`. 파라미터 없으면 기본 결과. `start/end` 는 "수익률이 발생하는 월" 기준.
 - 차트 색: dataviz 검증 팔레트 1~7번 순서 고정 (`--s-1` 전략, `--s-2..7` = spy, qqq, 6040, allweather, permanent, ew8). 다른 순서는 색각 검증 실패했음 (빨강·초록 인접 등). 누적 차트 y축은 `niceAxis()` 로 직접 계산 (Chart.js 기본은 −200% 까지 늘어났음).
 - 히트맵: 다이버징(하락 파랑 ↔ 회색 ↔ 상승 빨강), 월 ±6%, 연간 ±30% 대칭 도메인, 배경 휘도로 글자색 선택.

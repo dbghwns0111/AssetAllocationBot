@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 
+from market import splice
 from market.prices import fetch_prices
 from strategy import backtest as bt
 from strategy import haa
@@ -22,17 +23,23 @@ _log = get_logger("strategy.backtest_service")
 FX_TICKER = "KRW=X"
 PRICE_TTL = 6 * 3600
 DEFAULT = {"strategy": "haa", "start": None, "end": None, "slippage": 0.001,
-           "cash": "cash", "currency": "usd", "bench": list(DEFAULT_BENCHMARKS)}
+           "cash": "cash", "currency": "usd", "bench": list(DEFAULT_BENCHMARKS), "data": "proxy"}
 
 _default_lock = threading.Lock()
 _default: dict = {"result": None}
 
 
 def all_tickers() -> list:
-    t = set(benchmark_tickers()) | {FX_TICKER}
+    """백테스트에 쓰는 (이어붙인 뒤의) 티커 — 전략 + 벤치마크 + 환율."""
+    t = set(benchmark_tickers()) | {FX_TICKER, "BIL"}
     for s in bt.STRATEGIES.values():
         t |= set(s["tickers"])
     return sorted(t)
+
+
+def fetch_tickers() -> list:
+    """실제로 Yahoo 에서 받을 티커 — 대체 데이터 체인 전체 포함 (한 번에 받아 캐시 공유)."""
+    return splice.chain_tickers(all_tickers(), proxies=True)
 
 
 def normalize(p: dict) -> dict:
@@ -60,6 +67,8 @@ def normalize(p: dict) -> dict:
         raise ValueError("BIL 처리 방식이 올바르지 않습니다.")
     if out["currency"] not in ("usd", "krw"):
         raise ValueError("통화가 올바르지 않습니다.")
+    if out["data"] not in ("proxy", "etf"):
+        raise ValueError("데이터 방식이 올바르지 않습니다.")
     bench = out["bench"]
     if isinstance(bench, str):
         bench = [b for b in bench.split(",") if b]
@@ -78,8 +87,9 @@ def _is_default(p: dict) -> bool:
 
 def compute(params: dict) -> dict:
     p = normalize(params)
-    prices = fetch_prices(all_tickers(), range_="max", ttl=PRICE_TTL)
-    mt = haa.build_monthly(prices["series"])
+    prices = fetch_prices(fetch_tickers(), range_="max", ttl=PRICE_TTL)
+    series_map, etf_start = splice.build(prices["series"], all_tickers(), proxies=p["data"] == "proxy")
+    mt = haa.build_monthly(series_map)
     labels = [bt.month_label(ym) for ym in mt["months"]]
 
     strat = bt.STRATEGIES[p["strategy"]]
@@ -108,8 +118,8 @@ def compute(params: dict) -> dict:
     rf = [mt["close"]["BIL"][j] / mt["close"]["BIL"][j - 1] - 1 for j in range(start_i + 1, end_i + 1)]
     start_label = labels[start_i]
 
-    def series(key, name, kind, fn, cash_proxy):
-        recs = bt.run(mt, fn, start_i, end_i, p["slippage"], p["cash"], cash_proxy, fx)
+    def series(key, name, kind, fn):
+        recs = bt.run(mt, fn, start_i, end_i, p["slippage"], p["cash"], fx)
         return {
             "key": key, "name": name, "kind": kind,
             "metrics": bt.metrics(recs, rf, start_label),
@@ -117,15 +127,27 @@ def compute(params: dict) -> dict:
             "drawdown": [0.0] + [r["drawdown"] for r in recs],
         }, recs
 
-    main, recs = series(p["strategy"], strat["name"], "strategy", strat["signal"], strat["cash_proxy"])
+    main, recs = series(p["strategy"], strat["name"], "strategy", strat["signal"])
     main["heatmap"] = bt.heatmap(recs)
     main["records"] = [{k: r[k] for k in ("month", "signal_asof", "mode", "weights", "traded", "cost", "ret")}
                        for r in reversed(recs)]
     benches = []
     for b in p["bench"]:
         # 벤치마크는 고정 비중 그대로 (BIL 포함 시에도 실제 BIL 로 계산)
-        s, _ = series(b, BENCHMARKS[b]["name"], "benchmark", fixed_signal(BENCHMARKS[b]["weights"]), None)
+        s, _ = series(b, BENCHMARKS[b]["name"], "benchmark", fixed_signal(BENCHMARKS[b]["weights"]))
         benches.append(s)
+
+    # 대체 데이터가 쓰인 구간 (백테스트 기간 안에서 실제 ETF 상장 전인 종목)
+    used = set(strat["tickers"]) | {t for b in p["bench"] for t in BENCHMARKS[b]["weights"]}
+    begin = mt["dates"][start_i]
+    proxies = []
+    if p["data"] == "proxy":
+        for t in sorted(used):
+            chain = splice.CHAINS.get(t, [t])
+            if len(chain) > 1 and etf_start[t] > begin:
+                proxies.append({"ticker": t, "etf_start": etf_start[t].isoformat()[:7],
+                                "sources": [splice.PROXY_NAMES.get(x, x) for x in chain[1:]]})
+    proxy_until = max((x["etf_start"] for x in proxies), default=None)
 
     return {
         "params": {**p, "slippage_pct": round(p["slippage"] * 100, 4)},
@@ -135,6 +157,7 @@ def compute(params: dict) -> dict:
         "meta": {
             "start": labels[start_i + 1], "end": labels[end_i], "months": end_i - start_i,
             "min_month": labels[auto_start + 1], "max_month": labels[last],
+            "proxies": proxies, "proxy_until": proxy_until,
             "strategies": [{"key": k, "name": v["name"], "desc": v["desc"]} for k, v in bt.STRATEGIES.items()],
             "benchmarks": [{"key": k, "name": v["name"], "desc": v["desc"]} for k, v in BENCHMARKS.items()],
         },

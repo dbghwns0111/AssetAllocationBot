@@ -8,7 +8,9 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
-const TRADABLE = ['SPY', 'IWM', 'VEA', 'VWO', 'VNQ', 'DBC', 'IEF', 'TLT', 'BIL'];
+const LEGACY = ['BIL', 'DBC'];   // 예전 유니버스 — 보유 중일 때만 표시 (매도용)
+const tradable = () => S.sig?.tradable || ['SPY', 'IWM', 'VEA', 'VWO', 'IEF', 'TLT', 'PDBC', 'VNQ', ...LEGACY];
+const tlabel = (t) => (t === 'CASH' ? '현금' : t);
 const MODE = {
   offensive: { title: '공격 모드', icon: 'i-offensive' },
   mixed:     { title: '공격 + 일부 방어', icon: 'i-mixed' },
@@ -137,7 +139,7 @@ async function loadSignal(refresh = false) {
 
 function reasonText(s) {
   const mom = Object.fromEntries(s.assets.map((a) => [a.ticker, a.momentum]));
-  const def = s.defensive_asset === s.cash_proxy ? `${s.defensive_asset} 신호 → 현금 보유` : s.defensive_asset;
+  const def = s.defensive_asset === 'CASH' ? '현금' : s.defensive_asset;
   if (!s.canary_on) return `카나리아 TIP 모멘텀이 ${pct(s.canary_momentum)}로 0 이하라서, 이번 달은 전액 방어(${def})합니다.`;
   const bad = s.top.filter((t) => mom[t] <= 0);
   if (bad.length) return `상위 4개 중 ${bad.join(', ')}의 모멘텀이 0 이하라서 그 몫은 방어자산(${def})으로 대체합니다.`;
@@ -153,7 +155,7 @@ function renderSignal() {
   ];
   if (s.partial) pills.push('<span class="pill warn"><svg><use href="#i-alert"/></svg>미확정 · 당월 미리보기</span>');
   if (s.stale) pills.push('<span class="pill warn"><svg><use href="#i-alert"/></svg>가격 조회 실패 · 이전 데이터</span>');
-  if (s.cash_weight > 0) pills.push(`<span class="pill">💵 ${s.cash_proxy} ${pct(s.cash_weight, 0, false)} → <b>현금 보유</b></span>`);
+  if (s.cash_weight > 0) pills.push(`<span class="pill">💵 현금 ${pct(s.cash_weight, 0, false)} → <b>달러로 보유</b></span>`);
   if (s.next_hint) pills.push(`<span class="pill warn"><svg><use href="#i-clock"/></svg>${esc(s.next_hint)}</span>`);
 
   const hero = $('#hero');
@@ -238,7 +240,7 @@ function renderAlloc() {
     <ul class="legend">
       ${entries.map(([t, w]) => `
         <li data-t="${t}"><span class="sw" style="background:${tcolor(t)}"></span>
-          <div class="lg-name"><b>${t}</b>${t === s.cash_proxy ? '<em class="cash-note">현금 보유</em>' : ''}<span>${t === s.cash_proxy ? '매수하지 않고 같은 비중을 달러 현금으로' : esc(names[t])}</span></div>
+          <div class="lg-name"><b>${tlabel(t)}</b>${t === 'CASH' ? '<em class="cash-note">USD</em>' : ''}<span>${t === 'CASH' ? '달러 현금으로 보유 · 모멘텀은 단기국채(BIL) 기준' : esc(names[t])}</span></div>
           <div class="lg-val">${pct(w, 0, false)}</div></li>`).join('')}
     </ul>`;
 
@@ -280,7 +282,7 @@ function renderChanges() {
   const cur = Object.keys(s.weights);
   const kept = cur.filter((t) => prev.includes(t));
   $('#chg-sub').textContent = `${monthLabel(s.prev.apply_month)} → ${monthLabel(s.apply_month)}`;
-  const chips = (list, cls) => list.map((t) => `<span class="chip ${cls}"><span class="sw" style="background:${tcolor(t)}"></span>${t}${t === s.cash_proxy ? ' (현금)' : ''}</span>`).join('');
+  const chips = (list, cls) => list.map((t) => `<span class="chip ${cls}"><span class="sw" style="background:${tcolor(t)}"></span>${tlabel(t)}</span>`).join('');
   const rows = [];
   if (s.added.length) rows.push(`<div class="chg-row"><span class="chg-label">새로 편입</span>${chips(s.added, 'in')}</div>`);
   if (s.removed.length) rows.push(`<div class="chg-row"><span class="chg-label">제외</span>${chips(s.removed, 'out')}</div>`);
@@ -302,9 +304,9 @@ function renderMomentum() {
   const dom = Math.max(...order.map((t) => Math.abs(by[t].momentum))) || 1;
   $('#momentum').innerHTML = order.map((t, i) => {
     const a = by[t];
-    const pick = t in s.weights;
+    const pick = t in s.weights || (t === 'BIL' && 'CASH' in s.weights);
     const w = (Math.abs(a.momentum) / dom) * 50;
-    const role = t === 'TIP' ? '카나리아' : (t === 'BIL' || t === 'IEF') ? '방어 후보' : '';
+    const role = t === 'TIP' ? '카나리아' : t === 'BIL' ? '현금 비교' : t === 'IEF' ? '방어 후보' : '';
     return `<div class="mom-row ${pick ? 'pick' : ''} ${i === s.ranking.length ? 'sep' : ''}" data-t="${t}" data-tip tabindex="0">
       <div class="mom-rank">${a.rank ?? '·'}</div>
       <div class="mom-name"><span class="sw" style="background:${tcolor(t)};width:8px;height:8px;border-radius:3px;flex-shrink:0"></span><b>${t}</b>
@@ -329,10 +331,9 @@ function renderMomentum() {
 /* ══ 리밸런싱 ═══════════════════════════════════════════════════════════════ */
 function latestRecord() { return S.records[0] || null; }
 
-// 실제 매수 목표 비중 — 신호의 BIL 비중은 현금으로 두므로 0
+// 실제 매수 목표 비중 — 현금(CASH)은 매수 대상이 아님
 function buyWeight(t) {
-  const s = S.sig;
-  return t === s.cash_proxy ? 0 : (s.weights[t] || 0);
+  return t === 'CASH' ? 0 : (S.sig.weights[t] || 0);
 }
 
 function prefillRebalance() {
@@ -353,15 +354,15 @@ function renderRebalance() {
   if (!s || !S.rbPrefilled) return;
   const showAll = $('#rb-all').checked;
   $('#rb-signal').textContent = `${monthLabel(s.apply_month)} 신호 · ${MODE[s.mode].title}${s.partial ? ' (미리보기)' : ''} · 가격 ${s.price_date}`;
-  TRADABLE.forEach((t) => { if (S.rb.px[t] == null) S.rb.px[t] = +s.prices[t].toFixed(2); });
+  tradable().forEach((t) => { if (S.rb.px[t] == null) S.rb.px[t] = +s.prices[t].toFixed(2); });
 
-  const rows = TRADABLE.filter((t) => showAll || buyWeight(t) || fnum(S.rb.cur[t]) > 0);
+  const rows = tradable().filter((t) => (showAll && !LEGACY.includes(t)) || buyWeight(t) || fnum(S.rb.cur[t]) > 0);
   const cashCard = s.cash_weight > 0 ? `
     <div class="order cash">
       <div class="order-id"><span class="sw" style="background:var(--t-CASH)"></span>
-        <div style="min-width:0"><b>현금 (USD)</b><small>신호 ${s.cash_proxy} ${pct(s.cash_weight, 0, false)} → 매수하지 않고 현금으로 보유</small></div></div>
+        <div style="min-width:0"><b>현금 (USD)</b><small>신호 현금 ${pct(s.cash_weight, 0, false)} → 달러로 보유 (매수 없음)</small></div></div>
       <span class="action hold" data-k="cash-target">-</span>
-      <div class="order-meta"><span>보유 중인 ${s.cash_proxy} 가 있으면 아래에서 매도로 표시됩니다.</span></div>
+      <div class="order-meta"><span>예전에 보유한 BIL · DBC 가 있으면 아래에서 매도로 표시됩니다.</span></div>
     </div>` : '';
   $('#orders').innerHTML = cashCard + rows.map((t) => `
     <div class="order" data-t="${t}">
@@ -385,12 +386,12 @@ function recalc() {
   const frac = $('#rb-fractional').checked;
   rb.cash = fnum($('#rb-cash').value);
   rb.deposit = fnum($('#rb-deposit').value);
-  const invested = TRADABLE.reduce((a, t) => a + fnum(rb.cur[t]) * s.prices[t], 0);
+  const invested = tradable().reduce((a, t) => a + fnum(rb.cur[t]) * s.prices[t], 0);
   const total = invested + rb.cash + rb.deposit;
 
   let buy = 0, sell = 0;
   const afterVal = {};
-  TRADABLE.forEach((t) => {
+  tradable().forEach((t) => {
     const w = buyWeight(t);
     const raw = total > 0 ? (total * w) / s.prices[t] : 0;
     const target = frac ? Math.floor(raw * 10000) / 10000 : Math.floor(raw);
@@ -408,8 +409,8 @@ function recalc() {
     const act = row.querySelector('[data-k="action"]');
     act.className = `action ${d > 0 ? 'buy' : d < 0 ? 'sell' : 'hold'}`;
     act.textContent = d > 0 ? `매수 ${num(d)}주` : d < 0 ? `매도 ${num(-d)}주` : '유지';
-    row.querySelector('[data-k="meta"]').innerHTML = t === s.cash_proxy && s.cash_weight > 0
-      ? `<span>신호 <b>${pct(s.cash_weight, 0, false)}</b> → 현금으로 보유 (매수 안 함)</span><span>체결 후 <b>${usd(after * px)}</b></span>`
+    row.querySelector('[data-k="meta"]').innerHTML = LEGACY.includes(t)
+      ? `<span>이전 유니버스 종목 — <b>매도 대상</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`
       : `<span>목표 <b>${pct(w, 0, false)}</b></span><span>목표 수량 <b>${num(target)}주</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`;
     const afterInput = row.querySelector('[data-f="after"]');
     if (document.activeElement !== afterInput) afterInput.value = rb.after[t];
@@ -449,9 +450,9 @@ async function saveRecord(btn) {
   const rb = S.rb;
   const date = $('#rb-date').value;
   if (!date) { toast('매매일을 입력하세요.', 'err'); return; }
-  const holdings = TRADABLE.map((t) => ({ ticker: t, shares: fnum(rb.after[t]), price: fnum(rb.px[t]) || s.prices[t] }))
+  const holdings = tradable().map((t) => ({ ticker: t, shares: fnum(rb.after[t]), price: fnum(rb.px[t]) || s.prices[t] }))
     .filter((h) => h.shares > 0);
-  const trades = TRADABLE.map((t) => {
+  const trades = tradable().map((t) => {
     const d = fnum(rb.after[t]) - fnum(rb.cur[t]);
     const px = fnum(rb.px[t]) || s.prices[t];
     return d > 0 ? `매수  ${t}  ${num(d)}주 @ ${usd(px)}` : d < 0 ? `매도  ${t}  ${num(-d)}주 @ ${usd(px)}` : null;

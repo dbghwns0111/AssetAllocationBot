@@ -26,13 +26,13 @@ const shiftMonth = (ym, delta) => {
 function btFormFromParams(p) {
   return {
     strategy: p.strategy, start: p.start || null, end: p.end || null,
-    slippage: p.slippage_pct, cash: p.cash, currency: p.currency, bench: [...p.bench],
+    slippage: p.slippage_pct, cash: p.cash, currency: p.currency, data: p.data, bench: [...p.bench],
     preset: p.start || p.end ? 'custom' : 'all',
   };
 }
-const btKey = (f) => JSON.stringify([f.strategy, f.start || null, f.end || null, Number(f.slippage), f.cash, f.currency, [...f.bench].sort()]);
+const btKey = (f) => JSON.stringify([f.strategy, f.start || null, f.end || null, Number(f.slippage), f.cash, f.currency, f.data, [...f.bench].sort()]);
 function btQuery(f) {
-  const q = new URLSearchParams({ strategy: f.strategy, slippage: String(f.slippage), cash: f.cash, currency: f.currency, bench: f.bench.join(',') });
+  const q = new URLSearchParams({ strategy: f.strategy, slippage: String(f.slippage), cash: f.cash, currency: f.currency, data: f.data, bench: f.bench.join(',') });
   if (f.start) q.set('start', f.start);
   if (f.end) q.set('end', f.end);
   return q.toString();
@@ -48,6 +48,7 @@ function btRenderForm() {
   $('#bt-slippage').value = f.slippage;
   $$('#bt-cash button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.cash));
   $$('#bt-currency button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.currency));
+  $$('#bt-data button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.data));
   $('#bt-bench').innerHTML = meta.benchmarks.map((b) => `
     <button class="chip-btn ${f.bench.includes(b.key) ? 'on' : ''}" data-key="${b.key}" title="${esc(b.desc)}">
       <span class="sw" style="background:var(${btColorVar(b.key)})"></span>${esc(b.name)} <small>${esc(b.desc)}</small></button>`).join('');
@@ -118,7 +119,7 @@ function btRender() {
   const names = r.benchmarks.map((b) => b.name).join(', ') || '없음';
   $('#bt-applied').textContent =
     `적용: ${r.strategy.name} · ${meta.start} ~ ${meta.end} (${meta.months}개월) · 슬리피지 ${p.slippage_pct}% · ` +
-    `${p.cash === 'cash' ? 'BIL→현금' : 'BIL 수익률'} · ${p.currency === 'krw' ? '원화 환산' : 'USD'} · 비교 ${names} · ` +
+    `현금 ${p.cash === 'cash' ? '0%' : '=BIL 수익률'} · ${p.currency === 'krw' ? '원화 환산' : 'USD'} · ${p.data === 'etf' ? 'ETF 실데이터' : '대체 데이터 포함'} · 비교 ${names} · ` +
     `계산 ${r.computed_at.replace('T', ' ').slice(5, 16)}${r.stale ? ' · ⚠ 가격 조회 실패(이전 데이터)' : ''}`;
   btRenderForm();
   btRenderKpis(r);
@@ -135,7 +136,7 @@ function btRenderKpis(r) {
   $('#bt-kpis').innerHTML = [
     tile('CAGR (연평균)', pct(m.cagr), b0 ? `${esc(b0.name)} ${pct(b0.metrics.cagr)}` : ''),
     tile('MDD (최대 낙폭)', pct(m.mdd), m.mdd_peak ? `${m.mdd_peak} → ${m.mdd_trough}` : ''),
-    tile('Sharpe', num2(m.sharpe), '무위험수익률 = BIL'),
+    tile('Sharpe', num2(m.sharpe), '무위험수익률 = 단기국채'),
     tile('Sortino', num2(m.sortino), '하방 변동성 기준'),
     tile('연 변동성', pct(m.volatility, 2, false), '월수익률 표준편차 × √12'),
     tile('총수익률', pct(m.total_return, 1), `${r.meta.months}개월`),
@@ -158,7 +159,31 @@ function niceAxis(values, dd) {
   return { min, max: dd ? 0 : Math.ceil(hi / step) * step, ticks: { stepSize: step } };
 }
 
-function btLineChart(key, canvas, labels, series, { log = false, dd = false }) {
+// 대체 데이터 구간(실제 ETF 상장 전)을 차트 배경에 옅게 칠한다
+const proxyShade = {
+  id: 'proxyShade',
+  beforeDatasetsDraw(chart, _args, opts) {
+    if (!opts || !opts.until) return;
+    const x = chart.scales.x, { top, bottom, left } = chart.chartArea;
+    const idx = chart.data.labels.findIndex((l) => l >= opts.until);
+    if (idx <= 0) return;
+    const right = x.getPixelForValue(idx);
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.fillStyle = cssVar('--surface-3');
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(left, top, right - left, bottom - top);
+    ctx.globalAlpha = 1;
+    if (opts.label) {
+      ctx.fillStyle = cssVar('--muted');
+      ctx.font = '600 11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.fillText(opts.label, left + 8, top + 14);
+    }
+    ctx.restore();
+  },
+};
+
+function btLineChart(key, canvas, labels, series, { log = false, dd = false, shade = null }) {
   if (typeof Chart === 'undefined') return;
   S.charts[key]?.destroy();
   const line = cssVar('--line'), muted = cssVar('--muted'), surface = cssVar('--surface'), ink = cssVar('--ink');
@@ -184,6 +209,7 @@ function btLineChart(key, canvas, labels, series, { log = false, dd = false }) {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
+        proxyShade: shade,
         tooltip: {
           backgroundColor: surface, titleColor: ink, bodyColor: ink, borderColor: line, borderWidth: 1,
           padding: 10, cornerRadius: 10, usePointStyle: true, boxWidth: 8, boxHeight: 8,
@@ -205,7 +231,7 @@ function btLineChart(key, canvas, labels, series, { log = false, dd = false }) {
         },
       },
     },
-    plugins: [crosshair],
+    plugins: [crosshair, proxyShade],
   });
 }
 
@@ -214,8 +240,13 @@ function btRenderCharts(r) {
   const log = $('#bt-log').checked;
   $('#bt-chart-sub').textContent = `${r.meta.start} ~ ${r.meta.end} · ${r.params.currency === 'krw' ? '원화 환산' : 'USD'} · 비용 차감 후`;
   $('#bt-legend').innerHTML = series.map((s) => `<span><i style="background:var(${btColorVar(s.key)})${s.kind === 'strategy' ? ';height:4px' : ''}"></i>${esc(s.name)} <b>${pct(s.metrics.total_return, 0)}</b> <span class="muted">CAGR ${pct(s.metrics.cagr, 1)}</span></span>`).join('');
-  btLineChart('bt', $('#bt-chart'), r.labels, series, { log });
-  btLineChart('btdd', $('#bt-dd'), r.labels, series, { dd: true });
+  const until = r.meta.proxy_until;
+  btLineChart('bt', $('#bt-chart'), r.labels, series, { log, shade: until ? { until, label: `대체 데이터 포함 구간 (~${until})` } : null });
+  btLineChart('btdd', $('#bt-dd'), r.labels, series, { dd: true, shade: until ? { until } : null });
+  const px = r.meta.proxies || [];
+  $('#bt-proxy').innerHTML = px.length
+    ? `<b>대체 데이터</b> (회색 배경 구간) — ${px.map((p) => `${p.ticker} ${p.etf_start} 이전: ${esc(p.sources.join(' → '))}`).join(' · ')}`
+    : (r.params.data === 'etf' ? '실제 ETF 데이터만 사용' : '');
 }
 
 const BT_ROWS = [
@@ -280,7 +311,7 @@ function btRenderRecs(r) {
   const rows = recs.slice(0, BT.recLimit).map((x) => `<tr>
     <td><b>${x.month}</b></td>
     <td>${x.mode ? `<span class="mode-tag ${x.mode}">${MODE[x.mode].title}</span>` : '-'}</td>
-    <td class="wrap" style="text-align:left">${Object.entries(x.weights).map(([t, w]) => `<span class="chip" style="padding:2px 8px;font-size:12px;margin:1px"><span class="sw" style="background:${tcolor(t)}"></span>${t}${cashMode && t === 'BIL' ? '→현금' : ''}${w !== 0.25 ? ` ${pct(w, 0, false)}` : ''}</span>`).join('')}</td>
+    <td class="wrap" style="text-align:left">${Object.entries(x.weights).map(([t, w]) => `<span class="chip" style="padding:2px 8px;font-size:12px;margin:1px"><span class="sw" style="background:${tcolor(t)}"></span>${t === 'CASH' ? '현금' : t}${w !== 0.25 ? ` ${pct(w, 0, false)}` : ''}</span>`).join('')}</td>
     <td>${pct(x.traded, 0, false)}</td>
     <td>${(x.cost * 100).toFixed(2)}%</td>
     <td><b>${tri(x.ret)} ${pct(x.ret)}</b></td></tr>`).join('');
@@ -319,6 +350,7 @@ function btBind() {
   $('#bt-slippage').addEventListener('input', (e) => { if (BT.form) { BT.form.slippage = parseFloat(e.target.value); btSyncDirty(); } });
   $('#bt-cash').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b && BT.form) { BT.form.cash = b.dataset.v; btRenderForm(); } });
   $('#bt-currency').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b && BT.form) { BT.form.currency = b.dataset.v; btRenderForm(); } });
+  $('#bt-data').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b && BT.form) { BT.form.data = b.dataset.v; BT.form.start = null; BT.form.preset = BT.form.end ? 'custom' : 'all'; btRenderForm(); } });
   $('#bt-bench').addEventListener('click', (e) => {
     const b = e.target.closest('[data-key]');
     if (!b || !BT.form) return;
