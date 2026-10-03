@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>HAA Allocation</title>
+  <title>Asset Allocation</title>
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="theme-color" content="#4f46e5">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="HAA">
+  <meta name="apple-mobile-web-app-title" content="자산배분">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32.png') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/icon-192.png') }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
@@ -44,8 +44,8 @@
         <circle cx="18" cy="18" r="9.5" fill="none" stroke="#a5b4fc" stroke-width="5" stroke-dasharray="13.9 59.7" stroke-dashoffset="-31.8" transform="rotate(-90 18 18)"/>
       </svg>
       <div>
-        <div class="brand-name">HAA Allocation</div>
-        <div class="brand-sub">하이브리드 자산배분 · 월간 리밸런싱</div>
+        <div class="brand-name">Asset Allocation</div>
+        <div class="brand-sub">동적자산배분 · 월간 리밸런싱</div>
       </div>
     </div>
     <nav class="segnav nav-desktop" aria-label="화면">
@@ -198,7 +198,7 @@
   </div>
   <div class="card">
     <h3 class="card-title">텔레그램 알림</h3>
-    <p class="card-sub">HAA 전용 봇 · 매월 말 장 마감 후 새 신호를 자동 발송</p>
+    <p class="card-sub">자산배분 전용 봇 · 매월 말 장 마감 후 새 신호를 자동 발송</p>
     <div id="set-telegram" style="margin-top:8px"></div>
     <div class="toggle-row" style="margin-top:12px;justify-content:flex-start;gap:8px">
       <button class="btn btn-ghost btn-sm" id="btn-tg-test">테스트 메시지</button>

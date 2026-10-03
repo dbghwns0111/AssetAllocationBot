@@ -125,18 +125,18 @@ def build_last_record(rec: dict | None) -> str:
 
 def build_help() -> str:
     body = [
-        "/signal    이번 달 확정 신호",
+        "/signal    이번 달 HAA 확정 신호",
         "/preview   당월 가격 미리보기",
         "/momentum  모멘텀 순위",
         "/last      최근 리밸런싱 기록",
         "/help      명령어 목록",
     ]
-    return card("🤖", "HAA 봇 명령어", body,
+    return card("🤖", "자산배분 봇 명령어", body,
                 foot="매월 말 미국 장 마감 후(한국시간 새벽) 새 신호를 자동으로 보냅니다.")
 
 
 def build_test() -> str:
-    return card("✅", "HAA 봇 연결 테스트", foot="이 메시지가 보이면 알림 설정이 정상입니다.")
+    return card("✅", "자산배분 봇 연결 테스트", foot="이 메시지가 보이면 알림 설정이 정상입니다.")
 
 
 def build_error(context: str, err: Exception) -> str:

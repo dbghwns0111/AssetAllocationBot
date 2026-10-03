@@ -1,7 +1,7 @@
 {
-  "name": "HAA Allocation",
-  "short_name": "HAA",
-  "description": "HAA 동적자산배분 월간 리밸런싱 도우미",
+  "name": "Asset Allocation",
+  "short_name": "자산배분",
+  "description": "동적자산배분 월간 리밸런싱 도우미",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

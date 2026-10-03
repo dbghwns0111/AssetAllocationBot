@@ -1,4 +1,4 @@
-/* HAA Allocation — 프론트엔드 (프레임워크 없음)
+/* Asset Allocation — 프론트엔드 (프레임워크 없음)
  *
  * 화면: 이번 달(신호) / 리밸런싱(계산기 + 저장) / 기록(내 리밸런싱 + 전략 신호 이력)
  * 상태 변경 요청은 api() 를 통해서만 보낸다 — X-CSRF-Token 자동 부여, 401 이면 로그인으로.
@@ -162,7 +162,7 @@ function renderSignal() {
     <div class="hero-status">
       <div class="mode-icon"><svg><use href="#${m.icon}"/></svg></div>
       <div>
-        <div class="eyebrow">${monthLabel(s.apply_month)} 포트폴리오</div>
+        <div class="eyebrow">HAA · ${monthLabel(s.apply_month)} 포트폴리오</div>
         <h1 class="hero-title">${m.title}</h1>
       </div>
     </div>

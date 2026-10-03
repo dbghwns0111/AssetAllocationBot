@@ -1,9 +1,12 @@
 # CLAUDE.md
 
-HAA(Hybrid Asset Allocation, Keller & Keuning 2023) 월간 리밸런싱 신호 확인 + 매매 기록 웹앱.
+**Asset Allocation** — 동적자산배분 전략의 월간 리밸런싱 신호 확인 + 매매 기록 웹앱. 현재 전략은 HAA(Hybrid Asset Allocation, Keller & Keuning 2023) 하나.
 사용자는 실제로 HAA 에 투자 중이다. 개발 PC → GitHub push → 클라우드 PC pull 로 배포하고, 휴대폰·집 PC 에서 ZeroTier 로 접속한다.
 
 ## 유지보수 규칙
+
+- **앱 이름은 전략 중립적으로** (사용자 요청 2026-10-03): 화면·manifest·봇 제목 등 앱 이름은 "Asset Allocation" / "자산배분". "HAA" 는 전략에 속한 내용(신호 제목, 전략 규칙, 히어로 eyebrow `HAA · 2026년 10월`)에만 쓴다. 이후 BAA·LAA 등 다른 전략을 추가할 계획이 있으니 새 코드는 전략을 바꿔 끼울 수 있게 (전략별 상수/계산을 `strategy/` 아래 모듈로) 작성할 것.
+- 단, 서버에 이미 등록된 **내부 식별자는 이름을 바꾸지 않는다**: 작업 스케줄러 `HAA-Allocation`, 방화벽 규칙 `HAA Allocation <port>`, 쿠키 `haa_session`, localStorage `haa-theme`, DB `data/haa.db`, 로그 `logs/haa.log`, 로거 `haa.*`. 바꾸면 서버에 옛 작업/규칙이 남아 중복 실행·규칙 중복이 생긴다 (바꿀 거면 install 스크립트에 옛 이름 정리 로직을 함께 넣을 것).
 
 - **코드를 수정할 때마다 이 파일을 함께 최신화한다** (구조, API, 스키마, 실행/배포, 결정 사항). 배포·접속 절차가 바뀌면 README.md 도 갱신.
 - 답변·UI·로그·텔레그램 문구는 한국어.
@@ -18,7 +21,7 @@ HAA(Hybrid Asset Allocation, Keller & Keuning 2023) 월간 리밸런싱 신호 �
 - 몽클라우드 클라우드 PC, Windows Server 2012 R2, PowerShell 4.0. CryptoSplit 자동매매 봇이 **포트 5000** 에서 이미 구동 중 → HAA 는 **5001**.
 - 외부 접속: 인바운드 포트 개방 불가 → ZeroTier 가상망 `10.73.56.0/24`. 방화벽 규칙은 그 대역만 허용 (`install_service.ps1`).
 - 상시 구동: 작업 스케줄러 `HAA-Allocation` (SYSTEM, 부팅 30초 후, 실패 시 1분 후 재시작) → `run_service.bat`(설치 시 생성, gitignore) → `.venv\Scripts\pythonw.exe main.py`.
-- 봇과 환경 분리: HAA 는 자체 `.venv`. 텔레그램도 **HAA 전용 봇** (CryptoSplit 봇 채널 사용 금지 — 사용자 요청). 세션 쿠키 이름 `haa_session` (같은 IP 의 5000 번 쿠키와 충돌 방지).
+- 봇과 환경 분리: 이 앱은 자체 `.venv`. 텔레그램도 **자산배분 전용 봇** (CryptoSplit 봇 채널 사용 금지 — 사용자 요청). 세션 쿠키 이름 `haa_session` (같은 IP 의 5000 번 쿠키와 충돌 방지).
 - HAA 스크립트는 프로세스를 이름이 아니라 **이 프로젝트 `.venv` 경로**로 골라 종료한다 (CryptoSplit 을 죽이지 않도록).
 - install/uninstall/update.bat 은 관리자 권한이 아니면 스스로 관리자로 재실행한다 (`net session` 검사 → `Start-Process -Verb RunAs`). 과거 update.bat 을 일반 권한으로 실행해 재시작이 건너뛰어지자, 새 app.js + 옛 템플릿(서버 메모리 캐시)이 섞여 화면이 깨진 적이 있다 (2026-10-03).
 - 그 재발 방지: `TEMPLATES_AUTO_RELOAD=True`, CSS/JS 주소에 수정시각 `?v={{ asset_v }}` (web/app.py context_processor). 단, Python 코드(API) 변경은 여전히 재시작이 필요하다. JS 에서 새로 추가한 DOM 요소는 없을 수도 있다고 보고 null 검사할 것.
@@ -44,7 +47,7 @@ market/prices.py             Yahoo chart API 일별 수정종가, 30분 캐시, 
 strategy/haa.py              순수 함수: 월말표, 13612U, allocate, 월말 확정 판정, 신호/이력
 strategy/service.py          가격 조회 + 뉴욕 현재시각 주입
 database/                    connection(WAL, 백업, 무결성) · models(DDL) · record_repo · auth_repo · notify_repo
-notification/telegram.py     HAA 전용 봇 클라이언트 (HTML 전송, 400 이면 평문 재전송)
+notification/telegram.py     자산배분 전용 봇 클라이언트 (HTML 전송, 400 이면 평문 재전송)
 notification/message_builder.py  모든 메시지는 card() 경유 (이스케이프 일원화, <pre> 폭 36칸)
 notification/scheduler.py    APScheduler: 매시 05분 신호 점검(check_and_notify), 04:30 DB 백업
 notification/telegram_handler.py  long-polling 명령어 (/signal /preview /momentum /last /help), 설정된 chat_id 만 응답

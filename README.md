@@ -1,7 +1,8 @@
-# HAA Allocation
+# Asset Allocation
 
-Wouter Keller의 **HAA(Hybrid Asset Allocation)** 전략으로 매월 리밸런싱 종목을 확인하고, 실제 매매를 기록하는 웹앱.
-클라우드 PC에서 24시간 띄워두고 휴대폰·집 PC에서 **ZeroTier** 로 접속한다. 새 신호는 HAA 전용 텔레그램 봇이 알려준다.
+동적자산배분 전략의 월간 리밸런싱 종목을 확인하고, 실제 매매를 기록하는 웹앱.
+현재는 Wouter Keller의 **HAA(Hybrid Asset Allocation)** 를 지원하며, 이후 BAA·LAA 등 다른 전략을 추가할 수 있도록 앱 이름은 전략과 무관하게 지었다.
+클라우드 PC에서 24시간 띄워두고 휴대폰·집 PC에서 **ZeroTier** 로 접속한다. 새 신호는 전용 텔레그램 봇이 알려준다.
 
 PC 는 화면 폭에 맞춰 1~4단으로 자동 재배치되고, 휴대폰은 1단 + 하단 탭바로 보인다.
 
@@ -11,7 +12,7 @@ PC 는 화면 폭에 맞춰 1~4단으로 자동 재배치되고, 휴대폰은 1�
 | 리밸런싱 | 보유 수량·현금 입력 → 목표 수량·매수/매도 계산 → 체결 내용 수정 후 기록 저장 |
 | 기록 | 내 리밸런싱 타임라인·총자산 추이 / 전략 신호 24개월 이력·누적 수익률 |
 
-## 전략 규칙
+## 전략 규칙 (HAA)
 
 - **카나리아** TIP 의 13612U 모멘텀 ≤ 0 → 100% 방어자산
 - **공격자산** SPY · IWM · VEA · VWO · VNQ · DBC · IEF · TLT 중 모멘텀 상위 4개에 25%씩 (상위 4개 중 모멘텀 ≤ 0 이면 그 몫은 방어자산)
@@ -46,7 +47,7 @@ deploy.bat       :: 변경사항 커밋 + GitHub push
 
 개발 PC 에서 `deploy.bat` → 클라우드 PC 에서 `update.bat` 을 **관리자로 실행** (git pull + 패키지 갱신 + 서비스 재시작).
 
-## 텔레그램 봇 만들기 (HAA 전용)
+## 텔레그램 봇 만들기 (자산배분 전용)
 
 1. 텔레그램에서 `@BotFather` → `/newbot` → 이름 정하기 → **토큰** 받기
 2. 만든 봇에게 아무 메시지나 보낸 뒤, 브라우저에서 `https://api.telegram.org/bot<토큰>/getUpdates` 열기 → `"chat":{"id": 숫자}` 가 **채팅 ID**
@@ -64,7 +65,7 @@ deploy.bat       :: 변경사항 커밋 + GitHub push
 | `WEB_PASSWORD` | 로그인 비밀번호. 비우면 로그인 없음 — 외부 접속 시 반드시 설정 |
 | `WEB_SECRET_KEY` | 세션 서명 키 (비우면 재시작마다 재로그인) |
 | `WEB_IP_WHITELIST` | 허용 IP/대역, 쉼표 구분 (예: `10.73.56.0/24`). 127.0.0.1 은 항상 허용 |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | HAA 전용 봇 |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | 자산배분 전용 봇 (CryptoSplit 봇과 별개) |
 | `DB_PATH` | 기록 DB (기본 `data/haa.db`) |
 
 ## 데이터

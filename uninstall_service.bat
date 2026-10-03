@@ -1,5 +1,5 @@
 @echo off
-title HAA Allocation - Uninstall Service
+title Asset Allocation - Uninstall Service
 rem Relaunch as administrator if needed (service restart / firewall need admin rights)
 net session >nul 2>&1
 if %errorlevel% neq 0 (

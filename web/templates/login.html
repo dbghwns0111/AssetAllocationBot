@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>HAA Allocation · 로그인</title>
+  <title>Asset Allocation · 로그인</title>
   <meta name="theme-color" content="#4f46e5">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32.png') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/icon-192.png') }}">
@@ -17,7 +17,7 @@
   <div class="login-wrap">
     <form class="login-card" method="post" action="{{ url_for('auth.login') }}{% if request.args.get('next') %}?next={{ request.args.get('next')|urlencode }}{% endif %}">
       <img class="brand-mark" src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" style="border-radius:14px">
-      <h1>HAA Allocation</h1>
+      <h1>Asset Allocation</h1>
       <p>접속 비밀번호를 입력하세요</p>
       <div class="login-err">{{ error or '' }}</div>
       <input class="input" type="password" name="password" id="pw" placeholder="비밀번호"

@@ -1,5 +1,5 @@
 #Requires -Version 3.0
-# HAA Allocation - 개발 PC 에서 GitHub 배포 (add -> 커밋 메시지 -> commit -> push)
+# Asset Allocation - 개발 PC 에서 GitHub 배포 (add -> 커밋 메시지 -> commit -> push)
 # 커밋 메시지는 claude CLI 가 있으면 자동 생성, 없으면 직접 입력.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8

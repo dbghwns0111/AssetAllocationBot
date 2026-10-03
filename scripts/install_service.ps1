@@ -1,5 +1,5 @@
 #Requires -Version 3.0
-# HAA Allocation - 서비스 설치 (클라우드 PC, 관리자 권한)
+# Asset Allocation - 서비스 설치 (클라우드 PC, 관리자 권한)
 #  1) .venv 생성 + 패키지 설치
 #  2) 작업 스케줄러 등록 (부팅 시 자동 시작, 비정상 종료 시 1분 후 재시작)
 #  3) Windows 방화벽 인바운드 허용 (ZeroTier 대역만)
@@ -12,7 +12,7 @@ function Pause-Exit($code) { Read-Host "`n계속하려면 Enter"; exit $code }
 
 Write-Output ""
 Write-Output " ===================================="
-Write-Output "   HAA Allocation - 서비스 설치"
+Write-Output "   Asset Allocation - 서비스 설치"
 Write-Output " ===================================="
 Write-Output "   프로젝트: $ProjectDir"
 Write-Output ""
@@ -92,7 +92,7 @@ if ($LASTEXITCODE -eq 0) {
 $taskXml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>HAA Allocation 웹 (포트 $port)</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Asset Allocation 웹 (포트 $port)</Description></RegistrationInfo>
   <Triggers><BootTrigger><Enabled>true</Enabled><Delay>PT30S</Delay></BootTrigger></Triggers>
   <Principals><Principal><UserId>SYSTEM</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
@@ -116,7 +116,7 @@ if ($rc -ne 0) { Write-Output "[오류] 작업 등록 실패"; Pause-Exit 1 }
 Write-Output "[4/5] 방화벽 인바운드 규칙 (TCP $port)"
 $remote = Read-Host "   허용할 원격 IP 범위 [기본: 10.73.56.0/24 = ZeroTier]"
 if (-not $remote) { $remote = "10.73.56.0/24" }
-$ruleName = "HAA Allocation $port"
+$ruleName = "HAA Allocation $port"   # 기존 서버 규칙과 맞추기 위해 이름 유지
 netsh advfirewall firewall delete rule name="$ruleName" | Out-Null
 netsh advfirewall firewall add rule name="$ruleName" dir=in action=allow protocol=TCP localport=$port remoteip=$remote | Out-Null
 Write-Output "       '$ruleName' : $remote -> TCP $port 허용"

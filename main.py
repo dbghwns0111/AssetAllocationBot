@@ -1,4 +1,4 @@
-"""HAA 리밸런싱 도우미 — 진입점.
+"""Asset Allocation (동적자산배분 리밸런싱 도우미) — 진입점.
 
 main.py
   → .env 로드 → 로깅
@@ -50,7 +50,7 @@ def main() -> int:
 
     sched.start()
     TelegramCommandHandler(notifier).start()
-    log.info("HAA 리밸런싱 도우미 시작: http://%s:%s (텔레그램 %s)",
+    log.info("Asset Allocation 시작: http://%s:%s (텔레그램 %s)",
              host, port, "사용" if notifier.enabled else "미설정")
     try:
         server.run()

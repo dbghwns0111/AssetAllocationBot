@@ -1,5 +1,5 @@
 #Requires -Version 3.0
-# HAA Allocation - 서비스 제거 (관리자 권한)
+# Asset Allocation - 서비스 제거 (관리자 권한)
 # 주의: 같은 서버의 CryptoSplit 을 건드리지 않도록 "이 프로젝트 .venv 의 python" 프로세스만 종료한다.
 
 $TaskName = "HAA-Allocation"

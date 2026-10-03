@@ -1,5 +1,5 @@
 #Requires -Version 3.0
-# HAA Allocation - 서버 업데이트: git pull -> 패키지 갱신 -> 서비스 재시작
+# Asset Allocation - 서버 업데이트: git pull -> 패키지 갱신 -> 서비스 재시작
 # 재시작은 관리자 권한일 때만 자동 (아니면 안내만)
 
 $TaskName = "HAA-Allocation"
