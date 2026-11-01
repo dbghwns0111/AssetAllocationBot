@@ -6,6 +6,8 @@
 - 방어자산: IEF, 현금(CASH) 중 모멘텀이 더 높은 하나.
   현금의 모멘텀은 단기국채 BIL 의 모멘텀으로 본다 (원 HAA 의 BIL 비교와 같음, 보유만 현금).
 - 13612U = (1개월 + 3개월 + 6개월 + 12개월 수익률) / 4  (가중치 없음)
+- 실제 매수는 EXECUTION 의 저보수 ETF 로 한다 (SPY→SPYM, IWM→VTWO, TLT→VGLT/SPTL,
+  VNQ→SCHH, 현금→SGOV). 모멘텀 계산은 이력이 긴 원본 ETF 그대로.
 
 이 모듈은 네트워크/시계에 의존하지 않는 순수 함수만 둔다 (테스트 용이).
 가격 조회와 현재 시각 주입은 strategy/service.py 가 담당한다.
@@ -24,9 +26,20 @@ DEFENSIVE = ["IEF", CASH]
 TOP_N = 4
 LOOKBACKS = (1, 3, 6, 12)
 ALL_TICKERS = sorted(set(OFFENSIVE + [CANARY, CASH_MOMENTUM]))   # 신호 계산에 필요한 가격
-LEGACY = ["BIL", "DBC"]                   # 예전 유니버스 — 보유 중이면 리밸런싱 화면에서 매도 가능
-FETCH_TICKERS = sorted(set(ALL_TICKERS + LEGACY))
-TRADABLE = OFFENSIVE + LEGACY             # 리밸런싱 화면/기록에 쓸 수 있는 종목
+
+# 실제 계좌 매수 종목 (사용자 지정, 2026-11-01). 모멘텀·신호는 위 원본 ETF 로 계산하고,
+# 매수는 같은 자산군의 저보수 ETF 로 한다. 첫 번째가 기본, 나머지는 대안(보유 중이면 그 종목을 씀).
+# CASH 는 초단기 국채 SGOV 로 보유. 카나리아 TIP 은 신호용이라 매수하지 않는다.
+EXECUTION = {
+    "SPY": ["SPYM"], "IWM": ["VTWO"], "VEA": ["VEA"], "VWO": ["VWO"],
+    "IEF": ["IEF"], "TLT": ["VGLT", "SPTL"], "PDBC": ["PDBC"], "VNQ": ["SCHH"],
+    CASH: ["SGOV"],
+}
+EXEC_TICKERS = list(dict.fromkeys(v for vs in EXECUTION.values() for v in vs))
+# 매수 종목이 아닌 원본·예전 유니버스 종목 — 보유 중이면 리밸런싱 화면에서 매도 대상으로 표시
+LEGACY = [t for t in OFFENSIVE + ["BIL", "DBC"] if t not in EXEC_TICKERS]
+FETCH_TICKERS = sorted(set(ALL_TICKERS + LEGACY + EXEC_TICKERS))
+TRADABLE = EXEC_TICKERS + LEGACY          # 리밸런싱 화면/기록에 쓸 수 있는 종목
 MASTER = "SPY"                            # 월 달력 기준 종목
 CASH_PROXY = CASH                         # (호환) 화면에서 현금으로 취급하는 키
 
@@ -43,6 +56,12 @@ NAMES = {
     "BIL": "미국 초단기채 (현금 비교용)",
     "CASH": "현금 (USD)",
     "TIP": "물가연동채 (카나리아)",
+    "SPYM": "미국 대형주 (S&P 500)",
+    "VTWO": "미국 소형주 (Russell 2000)",
+    "VGLT": "미국 장기채 (Vanguard)",
+    "SPTL": "미국 장기채 (SPDR)",
+    "SCHH": "미국 리츠 (Schwab)",
+    "SGOV": "초단기 국채 0-3개월 (현금)",
 }
 
 MODE_LABEL = {"offensive": "공격", "mixed": "공격+일부 방어", "defensive": "방어"}
@@ -149,6 +168,17 @@ def allocate(mom: dict) -> dict:
     }
 
 
+def exec_weights(weights: dict, choice: dict | None = None) -> dict:
+    """신호 비중 {원본: w} → 실제 매수 비중 {매수 ETF: w}. choice = {원본: 고른 대안}."""
+    out: dict = {}
+    for t, w in weights.items():
+        v = (choice or {}).get(t)
+        if v not in EXECUTION.get(t, []):
+            v = EXECUTION.get(t, [t])[0]
+        out[v] = round(out.get(v, 0.0) + w, 4)
+    return out
+
+
 def _apply_month(d: date) -> str:
     y, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
     return f"{y:04d}-{m:02d}"
@@ -212,6 +242,9 @@ def compute_signal(prices: dict, now_ny: datetime, use_partial: bool = False) ->
         "prices": latest,
         "names": NAMES,
         "tradable": TRADABLE,
+        "legacy": LEGACY,
+        "execution": EXECUTION,
+        "exec_weights": exec_weights(alloc["weights"]),
         "assets": assets,
         "prev": {"apply_month": _apply_month(mt["dates"][i - 1]), "mode": prev["mode"],
                  "weights": prev["weights"]},

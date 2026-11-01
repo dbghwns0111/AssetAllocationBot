@@ -8,8 +8,9 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
-const LEGACY = ['BIL', 'DBC'];   // 예전 유니버스 — 보유 중일 때만 표시 (매도용)
-const tradable = () => S.sig?.tradable || ['SPY', 'IWM', 'VEA', 'VWO', 'IEF', 'TLT', 'PDBC', 'VNQ', ...LEGACY];
+// 매수 종목이 아닌 원본·예전 유니버스 종목 — 보유 중일 때만 표시 (매도용). 서버 haa.LEGACY 와 같음
+const legacy = () => S.sig?.legacy || ['SPY', 'IWM', 'TLT', 'VNQ', 'BIL', 'DBC'];
+const tradable = () => S.sig?.tradable || ['SPYM', 'VTWO', 'VEA', 'VWO', 'IEF', 'VGLT', 'SPTL', 'PDBC', 'SCHH', 'SGOV', ...legacy()];
 const tlabel = (t) => (t === 'CASH' ? '현금' : t);
 const MODE = {
   offensive: { title: '공격 모드', icon: 'i-offensive' },
@@ -20,7 +21,7 @@ const MODE = {
 const S = {
   sig: null, partial: false, records: [], hist: null,
   view: 'signal', recSub: 'mine', charts: {},
-  rb: null,          // { cur, after, px, edited, cash, deposit } — 계산기 입력의 원본
+  rb: null,          // { cur, after, px, edited, cash, deposit, veh } — 계산기 입력의 원본
   rbPrefilled: false,
 };
 
@@ -155,7 +156,7 @@ function renderSignal() {
   ];
   if (s.partial) pills.push('<span class="pill warn"><svg><use href="#i-alert"/></svg>미확정 · 당월 미리보기</span>');
   if (s.stale) pills.push('<span class="pill warn"><svg><use href="#i-alert"/></svg>가격 조회 실패 · 이전 데이터</span>');
-  if (s.cash_weight > 0) pills.push(`<span class="pill">💵 현금 ${pct(s.cash_weight, 0, false)} → <b>달러로 보유</b></span>`);
+  if (s.cash_weight > 0) pills.push(`<span class="pill">💵 현금 ${pct(s.cash_weight, 0, false)} → <b>${buyLabel('CASH')} 로 보유</b></span>`);
   if (s.next_hint) pills.push(`<span class="pill warn"><svg><use href="#i-clock"/></svg>${esc(s.next_hint)}</span>`);
 
   const hero = $('#hero');
@@ -240,7 +241,7 @@ function renderAlloc() {
     <ul class="legend">
       ${entries.map(([t, w]) => `
         <li data-t="${t}"><span class="sw" style="background:${tcolor(t)}"></span>
-          <div class="lg-name"><b>${tlabel(t)}</b>${t === 'CASH' ? '<em class="cash-note">USD</em>' : ''}<span>${t === 'CASH' ? '달러 현금으로 보유 · 모멘텀은 단기국채(BIL) 기준' : esc(names[t])}</span></div>
+          <div class="lg-name"><b>${tlabel(t)}</b>${buyLabel(t) !== t ? `<em class="cash-note" title="실제 매수 ETF">매수 ${buyLabel(t)}</em>` : ''}<span>${t === 'CASH' ? `초단기 국채(${buyLabel(t)})로 보유 · 모멘텀은 단기국채(BIL) 기준` : esc(names[t])}</span></div>
           <div class="lg-val">${pct(w, 0, false)}</div></li>`).join('')}
     </ul>`;
 
@@ -331,16 +332,26 @@ function renderMomentum() {
 /* ══ 리밸런싱 ═══════════════════════════════════════════════════════════════ */
 function latestRecord() { return S.records[0] || null; }
 
-// 실제 매수 목표 비중 — 현금(CASH)은 매수 대상이 아님
-function buyWeight(t) {
-  return t === 'CASH' ? 0 : (S.sig.weights[t] || 0);
+// 신호 종목 → 실제 매수 ETF (haa.EXECUTION). 대안이 있으면(TLT → VGLT/SPTL) 고른 것 → 보유 중인 것 → 첫 번째
+function vehicle(t) {
+  const c = S.sig?.execution?.[t] || [t];
+  const pick = S.rb?.veh?.[t];
+  if (c.includes(pick)) return pick;
+  return c.find((v) => fnum(S.rb?.cur?.[v]) > 0) || c[0];
+}
+const signalOf = (v) => Object.keys(S.sig?.execution || {}).find((t) => S.sig.execution[t].includes(v));
+const buyLabel = (t) => (S.sig?.execution?.[t] || [t]).join('/');
+
+// 실제 매수 목표 비중 — 신호 비중을 매수 ETF 로 옮겨 합산 (현금 비중 → SGOV)
+function buyWeight(v) {
+  return Object.entries(S.sig.weights).reduce((a, [t, w]) => a + (vehicle(t) === v ? w : 0), 0);
 }
 
 function prefillRebalance() {
   const r = latestRecord();
   const cur = {};
   (r?.holdings || []).forEach((h) => { cur[h.ticker] = h.shares; });
-  S.rb = { cur, after: {}, px: {}, edited: {}, cash: r ? r.cash : 0, deposit: 0 };
+  S.rb = { cur, after: {}, px: {}, edited: {}, cash: r ? r.cash : 0, deposit: 0, veh: {} };
   $('#rb-cash').value = (S.rb.cash || 0).toFixed(2);
   $('#rb-deposit').value = 0;
   $('#rb-prev').textContent = r
@@ -356,18 +367,20 @@ function renderRebalance() {
   $('#rb-signal').textContent = `${monthLabel(s.apply_month)} 신호 · ${MODE[s.mode].title}${s.partial ? ' (미리보기)' : ''} · 가격 ${s.price_date}`;
   tradable().forEach((t) => { if (S.rb.px[t] == null) S.rb.px[t] = +s.prices[t].toFixed(2); });
 
-  const rows = tradable().filter((t) => (showAll && !LEGACY.includes(t)) || buyWeight(t) || fnum(S.rb.cur[t]) > 0);
-  const cashCard = s.cash_weight > 0 ? `
-    <div class="order cash">
-      <div class="order-id"><span class="sw" style="background:var(--t-CASH)"></span>
-        <div style="min-width:0"><b>현금 (USD)</b><small>신호 현금 ${pct(s.cash_weight, 0, false)} → 달러로 보유 (매수 없음)</small></div></div>
-      <span class="action hold" data-k="cash-target">-</span>
-      <div class="order-meta"><span>예전에 보유한 BIL · DBC 가 있으면 아래에서 매도로 표시됩니다.</span></div>
-    </div>` : '';
-  $('#orders').innerHTML = cashCard + rows.map((t) => `
+  const rows = tradable().filter((t) => (showAll && !legacy().includes(t)) || buyWeight(t) || fnum(S.rb.cur[t]) > 0);
+  // 신호 종목 표시 + 대안 ETF 선택 (TLT → VGLT/SPTL)
+  const origin = (t) => {
+    const sig = legacy().includes(t) ? null : signalOf(t);
+    if (!sig || sig === t) return '';
+    const alts = s.execution[sig];
+    if (alts.length < 2) return ` · 신호 ${tlabel(sig)}`;
+    return ` · 신호 ${tlabel(sig)} <select class="veh-select" data-veh="${sig}" aria-label="${sig} 매수 ETF">${alts.map((v) =>
+      `<option ${vehicle(sig) === v ? 'selected' : ''}>${v}</option>`).join('')}</select>`;
+  };
+  $('#orders').innerHTML = rows.map((t) => `
     <div class="order" data-t="${t}">
       <div class="order-id"><span class="sw" style="background:${tcolor(t)}"></span>
-        <div style="min-width:0"><b>${t}</b><small>${esc(s.names[t])} · ${usd(s.prices[t])}</small></div></div>
+        <div style="min-width:0"><b>${t}</b><small>${esc(s.names[t])} · ${usd(s.prices[t])}${origin(t)}</small></div></div>
       <span class="action hold" data-k="action">유지</span>
       <div class="order-meta" data-k="meta"></div>
       <div class="order-fields">
@@ -409,16 +422,16 @@ function recalc() {
     const act = row.querySelector('[data-k="action"]');
     act.className = `action ${d > 0 ? 'buy' : d < 0 ? 'sell' : 'hold'}`;
     act.textContent = d > 0 ? `매수 ${num(d)}주` : d < 0 ? `매도 ${num(-d)}주` : '유지';
-    row.querySelector('[data-k="meta"]').innerHTML = LEGACY.includes(t)
-      ? `<span>이전 유니버스 종목 — <b>매도 대상</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`
+    row.querySelector('[data-k="meta"]').innerHTML = legacy().includes(t)
+      ? `<span>${s.execution?.[t] ? `신호용 원본 — 매수 종목 ${vehicle(t)} 로 교체` : '이전 유니버스 종목'} · <b>매도 대상</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`
+      : !w && after > 0 && signalOf(t)
+        ? `<span>${tlabel(signalOf(t))} 매수 종목이 ${vehicle(signalOf(t))} 로 선택됨 · <b>매도 대상</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`
       : `<span>목표 <b>${pct(w, 0, false)}</b></span><span>목표 수량 <b>${num(target)}주</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`;
     const afterInput = row.querySelector('[data-f="after"]');
     if (document.activeElement !== afterInput) afterInput.value = rb.after[t];
   });
 
   const remain = rb.cash + rb.deposit + sell - buy;
-  const cashTarget = $('[data-k="cash-target"]');
-  if (cashTarget) cashTarget.textContent = `목표 현금 ${usd(total * s.cash_weight)}`;
   $('#sum-total').textContent = usd(total);
   $('#sum-buy').textContent = usd(buy);
   $('#sum-sell').textContent = usd(sell);
@@ -704,6 +717,13 @@ function bindEvents() {
   $('#rb-fractional').addEventListener('change', () => { S.rb.edited = {}; recalc(); });
   $('#rb-all').addEventListener('change', renderRebalance);
   $('#orders').addEventListener('input', onOrderInput);
+  $('#orders').addEventListener('change', (e) => {
+    const sel = e.target.closest('select[data-veh]');
+    if (!sel) return;
+    S.rb.veh[sel.dataset.veh] = sel.value;
+    S.rb.edited = {};
+    renderRebalance();
+  });
   $('#rb-save').addEventListener('click', (e) => saveRecord(e.currentTarget));
 
   $$('#rec-tabs button').forEach((b) => b.addEventListener('click', () => { S.recSub = b.dataset.sub; history.replaceState(null, '', `#records/${S.recSub}`); renderRecordsView(); }));

@@ -67,8 +67,10 @@ scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / de
 ### 전략 로직 (`strategy/haa.py`)
 - 유니버스 (사용자 지정, 2026-10-03 변경): 카나리아 `TIP`, 공격 `SPY IWM VEA VWO IEF TLT PDBC VNQ`, 방어 `IEF`·`CASH`.
   - `CASH` = 달러 현금 (가격 없음, 수익률 0). **현금의 모멘텀은 단기국채 `BIL` 모멘텀으로 비교** (사용자 선택 — 원 HAA 의 BIL 비교와 동일, 보유만 현금). `allocate()` 의 `def_mom`.
-  - 신호 계산용 티커 `ALL_TICKERS` = 공격 + TIP + BIL. `LEGACY = BIL, DBC` (예전 유니버스) 는 가격만 받아 리밸런싱 화면에서 **보유 중일 때만 매도 대상으로** 표시. `TRADABLE` = 공격 + LEGACY.
-  - 이전에는 DBC·BIL 이었고 BIL 비중을 "현금으로 보유"하도록 화면에서 바꿔 보여줬으나, 이제 신호 자체가 `CASH` 를 낸다 (`CASH_PROXY = CASH` 는 호환용).
+  - 신호 계산용 티커 `ALL_TICKERS` = 공격 + TIP + BIL.
+  - **실제 매수 종목 `EXECUTION`** (사용자 지정, 2026-11-01): 모멘텀·신호·백테스트는 이력이 긴 원본 ETF 로 계산하고, 계좌 매수는 저보수 ETF 로. SPY→SPYM, IWM→VTWO, TLT→VGLT(대안 SPTL), VNQ→SCHH, CASH→SGOV, VEA·VWO·IEF·PDBC 는 그대로, TIP 은 매수 안 함. 리스트 첫 번째가 기본, 대안은 리밸런싱 카드의 선택상자로 고르며 기본값은 "고른 것 → 보유 중인 것 → 첫 번째" (`app.js vehicle()`). `exec_weights()` = 신호 비중 → 매수 비중, 신호 응답에 `execution`·`exec_weights`·`legacy` 포함.
+  - `LEGACY` = 매수 종목이 아닌 원본·예전 유니버스(SPY IWM TLT VNQ BIL DBC) — 리밸런싱 화면에서 **보유 중일 때만 매도 대상으로** 표시. `TRADABLE` = 매수 ETF + LEGACY (기록 저장 검증 기준). `FETCH_TICKERS` = 신호 + 매수 + LEGACY.
+  - 이력: DBC·BIL → (2026-10-03) PDBC·`CASH`(달러 보유) → (2026-11-01) 현금 비중도 SGOV 매수. `CASH_PROXY = CASH` 는 호환용.
 - 월 달력은 SPY 기준, 각 월 마지막 거래일 종가. 13612U = (r1+r3+r6+r12)/4.
 - TIP ≤ 0 → 방어 100%. 아니면 공격 상위 4개 25%씩, 그중 ≤ 0 은 방어자산으로 (같은 종목 비중 합산). 방어자산 = IEF / 현금(BIL 모멘텀) 중 높은 쪽.
 - 신호 이력 수익률에서 현금은 0%.
@@ -76,7 +78,7 @@ scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / de
 - **월말 확정 판정** `month_complete()` (뉴욕 시각 기준): 뉴욕 날짜가 다음 달이면 확정. 같은 달이면 데이터가 그 달 마지막 평일이고 16:15 이후일 때만 확정. 휴장으로 끝나는 달은 다음 달 0시에 확정.
 - 기본은 직전 확정 월 신호, `partial=1` 이면 진행 중인 달 최신가로 미리보기.
 - `compute_signal` 은 지난달 신호(`prev`)와 편입/제외(`added`/`removed`)도 반환.
-- 현금: 신호 응답의 `cash_weight` = CASH 비중. 계산기는 현금 카드에 목표 현금 표시, CASH 는 매수 대상 아님(`buyWeight`). 화면·텔레그램에서 `CASH` 는 "현금" 으로 표기 (`tlabel()`, `_label()`).
+- 현금: 신호 응답의 `cash_weight` = CASH 비중. 계산기는 그 비중만큼 SGOV 를 매수 (`buyWeight(v)` 가 신호 비중을 매수 ETF 로 합산). 화면·텔레그램에서 `CASH` 는 "현금" 으로 표기 (`tlabel()`, `_label()`), 텔레그램 신호에는 종목별 매수 ETF 열이 붙는다.
 
 ### 백테스트 (`strategy/backtest*.py`, `#backtest` 화면)
 - **엔진은 전략 독립**: `STRATEGIES[key] = {name, tickers, signal(mt, i) -> {weights, mode} | None, cash_proxy}`. BAA·LAA 추가 시 여기에 등록.
@@ -130,6 +132,6 @@ POST   /api/telegram/test | /api/telegram/signal
   - 배치용 `a-*` 클래스를 JS 가 지우지 않게 할 것 (히어로는 `classList` 로 mode 클래스만 교체)
 - 히어로 하단 요약: 이번 달 리밸런싱 기록 여부 / 다음 신호 확정일(그 달 마지막 평일) / 마지막 리밸런싱.
 - 라이트/다크: OS 설정 + 수동 토글(`data-theme`, localStorage `haa-theme`). 차트는 테마 변경 시 다시 그림.
-- 색 규칙: 등락·매매는 한국식 (상승·매수 = 빨강 `--up`, 하락·매도 = 파랑 `--down`). 종목 색은 종목에 고정 (`--t-SPY` …, dataviz 검증 8색 + BIL 회색). 수치 텍스트는 잉크색 + ▲▼ 로 방향 표시.
+- 색 규칙: 등락·매매는 한국식 (상승·매수 = 빨강 `--up`, 하락·매도 = 파랑 `--down`). 종목 색은 종목에 고정 (`--t-SPY` …, dataviz 검증 8색 + BIL 회색). 매수 ETF 는 원본 종목 색을 그대로 씀 (`--t-SPYM: var(--t-SPY)` 등, app.css 끝). 수치 텍스트는 잉크색 + ▲▼ 로 방향 표시.
 - 계산기: 총자산 = Σ현재보유×현재가 + 현금 + 입출금. 목표 수량 = floor(총자산×비중÷현재가) (소수점 매매 시 4자리). "체결 후"를 직접 고치면 `S.rb.edited` 로 고정. 잔여 현금 = 현금 + 입출금 + 매도액 − 매수액 (체결가 기준).
 - 직전 기록의 holdings/cash 로 계산기를 미리 채움.

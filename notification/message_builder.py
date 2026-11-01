@@ -15,7 +15,7 @@ from __future__ import annotations
 import html
 import unicodedata
 
-from strategy.haa import CANARY, CASH, CASH_MOMENTUM, MODE_LABEL
+from strategy.haa import CANARY, CASH, CASH_MOMENTUM, EXECUTION, MODE_LABEL
 
 MODE_ICON = {"offensive": "📈", "mixed": "⚖️", "defensive": "🛡️"}
 
@@ -77,9 +77,11 @@ def _reason(sig: dict) -> str:
 def build_signal(sig: dict, preview: bool = False) -> str:
     mom = {a["ticker"]: a["momentum"] for a in sig["assets"]}
     mom[CASH] = mom[CASH_MOMENTUM]          # 현금의 모멘텀 = 단기국채(BIL)
-    body = ["목표 비중"]
+    body = [f"{_pad('목표 비중', 24)}매수"]
     for t, w in sig["weights"].items():
-        body.append(f"{_pad(_label(t), 5)}{_pad(_pct(w, 0, sign=False), 6, right=True)}   {_pad(_pct(mom[t]), 8, right=True)}")
+        buy = "/".join(EXECUTION.get(t, [t]))
+        body.append(f"{_pad(_label(t), 5)}{_pad(_pct(w, 0, sign=False), 6, right=True)}   "
+                    f"{_pad(_pct(mom[t]), 8, right=True)}  {buy}")
     body.append("─" * 24)
     body.append(f"{_pad('카나리아 ' + CANARY, 13)}{_pad(_pct(sig['canary_momentum']), 9, right=True)}")
     body.append(f"{_pad('방어자산', 13)}{_pad(_label(sig['defensive_asset']), 9, right=True)}")
@@ -96,7 +98,8 @@ def build_signal(sig: dict, preview: bool = False) -> str:
     sub = f"{MODE_LABEL[sig['mode']]} 모드 · {sig['asof']} 종가 기준"
     foot = _reason(sig)
     if sig["weights"].get(CASH):
-        foot += "\n💵 현금은 달러(USD)로 보유합니다. (현금 모멘텀은 단기국채 BIL 기준)"
+        foot += "\n💵 현금 비중은 초단기 국채 SGOV 로 보유합니다. (현금 모멘텀은 단기국채 BIL 기준)"
+    foot += "\n모멘텀은 원본 ETF 로 계산하고, 매수는 오른쪽 ETF 로 합니다."
     if preview:
         foot += "\n※ 진행 중인 달의 가격으로 계산한 참고값입니다."
     return card(MODE_ICON[sig["mode"]], title, body, sub=sub, foot=foot)

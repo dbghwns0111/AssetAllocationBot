@@ -114,3 +114,23 @@ def test_defensive_ief_vs_cash_uses_bil_momentum():
 def test_universe():
     assert haa.OFFENSIVE == ["SPY", "IWM", "VEA", "VWO", "IEF", "TLT", "PDBC", "VNQ"]
     assert haa.DEFENSIVE == ["IEF", "CASH"] and haa.CANARY == "TIP"
+
+
+def test_execution_mapping():
+    # 신호는 원본 ETF, 매수는 저보수 ETF (사용자 지정 2026-11-01)
+    w = {"SPY": 0.25, "TLT": 0.25, "VNQ": 0.25, "CASH": 0.25}
+    assert haa.exec_weights(w) == {"SPYM": 0.25, "VGLT": 0.25, "SCHH": 0.25, "SGOV": 0.25}
+    assert haa.exec_weights(w, {"TLT": "SPTL"})["SPTL"] == 0.25
+    assert haa.exec_weights(w, {"TLT": "XXX"})["VGLT"] == 0.25        # 대안 목록 밖이면 기본값
+    assert haa.exec_weights({"IEF": 0.75, "CASH": 0.25}) == {"IEF": 0.75, "SGOV": 0.25}
+    assert set(haa.EXECUTION) == set(haa.OFFENSIVE) | {"CASH"}         # 카나리아 TIP 은 매수 안 함
+    assert haa.LEGACY == ["SPY", "IWM", "TLT", "VNQ", "BIL", "DBC"]    # 보유 시 매도 대상
+    assert not set(haa.LEGACY) & set(haa.EXEC_TICKERS)
+    assert set(haa.TRADABLE) <= set(haa.FETCH_TICKERS)
+
+
+def test_signal_includes_exec_weights():
+    g = {t: 0.02 for t in haa.ALL_TICKERS}
+    g.update(TIP=-0.01, BIL=0.003, IEF=-0.005)
+    sig = haa.compute_signal(_prices(g), NOW_AFTER_CLOSE)
+    assert sig["weights"] == {"CASH": 1.0} and sig["exec_weights"] == {"SGOV": 1.0}
