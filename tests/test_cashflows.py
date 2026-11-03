@@ -49,3 +49,12 @@ def test_record_deposit_creates_cashflow(client):
     # 입금 칸이 기존 입출금 기록과 같으면(추가분 0) 새로 만들지 않음
     assert client.post("/api/records", json={**rec, "deposit": 0}).status_code == 201
     assert len(client.get("/api/cashflows").get_json()) == 1
+
+
+def test_record_fee_saved(client):
+    rec = {"rebalance_date": "2026-11-03", "holdings": [{"ticker": "SPYM", "shares": 10, "price": 90}],
+           "cash": 49.19, "fee": 0.81}
+    assert client.post("/api/records", json=rec).status_code == 201
+    r = client.get("/api/records").get_json()[0]
+    assert r["fee"] == 0.81 and r["total_value"] == 949.19      # 총자산 = 보유 + 수수료 뺀 현금
+    assert client.post("/api/records", json={**rec, "fee": -1}).status_code == 400

@@ -63,4 +63,4 @@ def create_tables() -> None:
     with get_conn() as conn:
         for ddl in _DDL:
             conn.execute(ddl)
-        # 마이그레이션 예시: _add_column(conn, "records", "fee", "REAL DEFAULT 0")
+        _add_column(conn, "records", "fee", "REAL DEFAULT 0")   # 거래 수수료 USD (2026-11-03)

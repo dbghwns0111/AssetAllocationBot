@@ -657,3 +657,8 @@ table.heat { border-collapse: separate; border-spacing: 2px; width: 100%; font-v
 .flow-tag { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--ink-2); margin-left: 6px; white-space: nowrap; }
 .flow-tag.pending { background: var(--accent-soft); color: var(--accent); }
 .flow-empty { padding: 14px 2px 2px; color: var(--muted); font-size: 13.5px; }
+
+/* 거래 수수료 (리밸런싱 요약) */
+.fee-row { align-items: center; }
+.fee-row small { font-size: 12px; color: var(--muted); }
+.fee-row .input { width: 110px; flex-shrink: 0; }

@@ -33,14 +33,14 @@ def create_record(d: dict) -> int:
     with get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO records (rebalance_date, apply_month, signal_asof, mode, canary_momentum,
-                                    weights, holdings, cash, total_value, memo, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                                    weights, holdings, cash, total_value, fee, memo, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 d["rebalance_date"], d.get("apply_month"), d.get("signal_asof"), d.get("mode"),
                 d.get("canary_momentum"),
                 json.dumps(d.get("weights") or {}),
                 json.dumps(d.get("holdings") or []),
-                float(d.get("cash") or 0), float(d.get("total_value") or 0),
+                float(d.get("cash") or 0), float(d.get("total_value") or 0), float(d.get("fee") or 0),
                 d.get("memo") or "",
                 datetime.now().isoformat(timespec="seconds"),
             ),

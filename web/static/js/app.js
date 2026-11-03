@@ -21,7 +21,7 @@ const MODE = {
 const S = {
   sig: null, partial: false, records: [], flows: [], hist: null,
   view: 'signal', recSub: 'mine', charts: {},
-  rb: null,          // { cur, after, px, edited, cash, deposit, pendingDeposit, veh } — 계산기 입력의 원본
+  rb: null,          // { cur, after, px, edited, cash, deposit, pendingDeposit, veh, fee, feeEdited } — 계산기 입력의 원본
   rbPrefilled: false,
 };
 
@@ -365,7 +365,8 @@ function prefillRebalance() {
   (r?.holdings || []).forEach((h) => { cur[h.ticker] = h.shares; });
   const pend = pendingFlows();
   const pendSum = +pend.reduce((a, f) => a + f.amount, 0).toFixed(2);
-  S.rb = { cur, after: {}, px: {}, edited: {}, cash: r ? r.cash : 0, deposit: pendSum, pendingDeposit: pendSum, veh: {} };
+  S.rb = { cur, after: {}, px: {}, edited: {}, cash: r ? r.cash : 0, deposit: pendSum, pendingDeposit: pendSum, veh: {}, fee: 0, feeEdited: false };
+  $('#sum-fee').value = '';
   $('#rb-cash').value = (S.rb.cash || 0).toFixed(2);
   $('#rb-deposit').value = pendSum;
   $('#rb-prev').textContent = (r
@@ -416,19 +417,30 @@ function recalc() {
   rb.deposit = fnum($('#rb-deposit').value);
   const invested = tradable().reduce((a, t) => a + fnum(rb.cur[t]) * s.prices[t], 0);
   const total = invested + rb.cash + rb.deposit;
+  const rate = Math.max(fnum($('#rb-fee-rate').value), 0) / 100;
 
-  let buy = 0, sell = 0;
+  const targetsFor = (base) => Object.fromEntries(tradable().map((t) => {
+    const raw = base > 0 ? (base * buyWeight(t)) / s.prices[t] : 0;
+    return [t, frac ? Math.floor(raw * 10000) / 10000 : Math.floor(raw)];
+  }));
+  // 1차 목표로 매매 금액을 어림한 뒤, 수수료만큼 투자 금액을 줄여 다시 계산 (체결 후 현금 부족 방지)
+  let targets = targetsFor(total);
+  const traded0 = tradable().reduce((a, t) => a + Math.abs(targets[t] - fnum(rb.cur[t])) * s.prices[t], 0);
+  if (rate > 0) targets = targetsFor(total - traded0 * rate);
+
+  let buy = 0, sell = 0, feeCalc = 0;
   const afterVal = {};
   tradable().forEach((t) => {
     const w = buyWeight(t);
-    const raw = total > 0 ? (total * w) / s.prices[t] : 0;
-    const target = frac ? Math.floor(raw * 10000) / 10000 : Math.floor(raw);
+    const target = targets[t];
     if (!rb.edited[t]) rb.after[t] = target;
     const cur = fnum(rb.cur[t]);
     const after = fnum(rb.after[t]);
     const px = fnum(rb.px[t]) || s.prices[t];
     const d = after - cur;
     if (d > 0) buy += d * px; else sell += -d * px;
+    const fee = Math.round(Math.abs(d) * px * rate * 100) / 100;   // 주문별 센트 반올림
+    feeCalc += fee;
     if (after > 0) afterVal[t] = after * px;
 
     const row = $(`.order[data-t="${t}"]`);
@@ -442,11 +454,18 @@ function recalc() {
       : !w && after > 0 && signalOf(t)
         ? `<span>${tlabel(signalOf(t))} 매수 종목이 ${vehicle(signalOf(t))} 로 선택됨 · <b>매도 대상</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`
       : `<span>목표 <b>${pct(w, 0, false)}</b></span><span>목표 수량 <b>${num(target)}주</b></span><span>체결 후 <b>${usd(after * px)}</b></span>`;
+    if (fee > 0) row.querySelector('[data-k="meta"]').insertAdjacentHTML('beforeend', `<span>수수료 <b>${usd(fee)}</b></span>`);
     const afterInput = row.querySelector('[data-f="after"]');
     if (document.activeElement !== afterInput) afterInput.value = rb.after[t];
   });
 
-  const remain = rb.cash + rb.deposit + sell - buy;
+  // 수수료: 계산값, 또는 실제 청구액을 직접 입력했으면 그 값
+  if (!rb.feeEdited) rb.fee = +feeCalc.toFixed(2);
+  const feeInput = $('#sum-fee');
+  if (feeInput && document.activeElement !== feeInput) feeInput.value = rb.fee.toFixed(2);
+  const feeNote = $('#sum-fee-note');
+  if (feeNote) feeNote.textContent = rb.feeEdited ? '(직접 입력)' : `(${num(rate * 100, 3)}%)`;
+  const remain = rb.cash + rb.deposit + sell - buy - rb.fee;
   $('#sum-total').textContent = usd(total);
   $('#sum-buy').textContent = usd(buy);
   $('#sum-sell').textContent = usd(sell);
@@ -459,7 +478,7 @@ function recalc() {
   const sum = parts.reduce((a, [, v]) => a + v, 0) || 1;
   $('#sum-bar').innerHTML = parts.map(([t, v]) => `<span style="width:${(v / sum) * 100}%;background:${tcolor(t)}" title="${t}"></span>`).join('');
   $('#sum-legend').innerHTML = parts.map(([t, v]) => `<span><i style="background:${tcolor(t)}"></i>${t === 'CASH' ? '현금' : t} ${pct(v / sum, 1, false)}</span>`).join('');
-  S.rbTotals = { buy, sell, remain, total };
+  S.rbTotals = { buy, sell, remain, total, fee: rb.fee };
 }
 
 function onOrderInput(e) {
@@ -485,7 +504,7 @@ async function saveRecord(btn) {
     const px = fnum(rb.px[t]) || s.prices[t];
     return d > 0 ? `매수  ${t}  ${num(d)}주 @ ${usd(px)}` : d < 0 ? `매도  ${t}  ${num(-d)}주 @ ${usd(px)}` : null;
   }).filter(Boolean);
-  const { remain } = S.rbTotals;
+  const { remain, fee } = S.rbTotals;
   const value = holdings.reduce((a, h) => a + h.shares * h.price, 0);
   // 입금 칸 중 입출금 기록에 없는 금액만 새 입출금으로 저장 (이미 기록된 건 중복 저장 안 함)
   const extra = +(rb.deposit - (rb.pendingDeposit || 0)).toFixed(2);
@@ -495,6 +514,7 @@ async function saveRecord(btn) {
     '',
     ...(trades.length ? trades : ['매매 없음 (보유 유지)']),
     '',
+    `거래 수수료  ${usd(fee)}`,
     `체결 후 총자산  ${usd(value + remain)}`,
     `잔여 현금  ${usd(remain)}`,
   ];
@@ -511,7 +531,7 @@ async function saveRecord(btn) {
         body: JSON.stringify({
           rebalance_date: date, apply_month: s.apply_month, signal_asof: s.asof, mode: s.mode,
           canary_momentum: s.canary_momentum, weights: s.weights, holdings, cash: +remain.toFixed(2),
-          deposit: extra, memo: $('#rb-memo').value,
+          deposit: extra, fee, memo: $('#rb-memo').value,
         }),
       });
       toast(res.message);
@@ -592,6 +612,7 @@ function renderRecords() {
       <div class="tl-holds">
         ${r.holdings.map((h) => `<div class="tl-hold"><span><b>${h.ticker}</b> ${num(h.shares)}주 @ ${usd(h.price)}</span><span>${usd(h.value)}</span></div>`).join('')}
         <div class="tl-hold"><span>현금</span><span>${usd(r.cash)}</span></div>
+        ${r.fee > 0 ? `<div class="tl-hold"><span>거래 수수료</span><span>${usd(r.fee)}</span></div>` : ''}
         ${fl.length ? `<div class="tl-hold"><span>입출금 ${fl.length}건 ${p ? '(직전 기록 이후)' : '(첫 기록 전)'}</span><span>${signedUsd(flSum)}</span></div>` : ''}
       </div>
       <div class="tl-foot">
@@ -787,6 +808,15 @@ function bindEvents() {
   });
 
   ['#rb-cash', '#rb-deposit'].forEach((id) => $(id).addEventListener('input', () => { S.rb.edited = {}; recalc(); }));
+  $('#rb-fee-rate').addEventListener('input', (e) => {
+    try { localStorage.setItem('haa-fee-rate', e.target.value); } catch { /* 저장 불가 환경 */ }
+    S.rb.edited = {}; S.rb.feeEdited = false; recalc();
+  });
+  $('#sum-fee').addEventListener('input', (e) => {
+    S.rb.feeEdited = e.target.value !== '';
+    S.rb.fee = fnum(e.target.value);
+    recalc();
+  });
   $('#rb-fractional').addEventListener('change', () => { S.rb.edited = {}; recalc(); });
   $('#rb-all').addEventListener('change', renderRebalance);
   $('#orders').addEventListener('input', onOrderInput);
@@ -847,6 +877,7 @@ function bindEvents() {
 (async function init() {
   $('#rb-date').value = todayStr();
   $('#flow-date').value = todayStr();
+  try { const fr = localStorage.getItem('haa-fee-rate'); if (fr != null && fr !== '') $('#rb-fee-rate').value = fr; } catch { /* 저장 불가 환경 */ }
   syncThemeSeg();
   bindEvents();
   setView(location.hash.slice(1) || 'signal', false);

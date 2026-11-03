@@ -121,7 +121,7 @@ POST   /api/telegram/test | /api/telegram/signal
 오류는 `{"ok": false, "error": "..."}`. 로그인 활성 시 POST/PATCH/DELETE 는 `X-CSRF-Token` 필수 (프론트 `api()` 가 자동 부여).
 
 ### DB (`data/haa.db`)
-- `records(id, rebalance_date, apply_month, signal_asof, mode, canary_momentum, weights JSON, holdings JSON, cash, total_value, memo, created_at)` — holdings = 체결 **후** `[{ticker, shares, price, value, weight}]`
+- `records(id, rebalance_date, apply_month, signal_asof, mode, canary_momentum, weights JSON, holdings JSON, cash, total_value, fee, memo, created_at)` — holdings = 체결 **후** `[{ticker, shares, price, value, weight}]`, cash 는 수수료를 뺀 체결 후 잔액, fee = 거래 수수료 USD (`_add_column`, 2026-11-03)
 - `cashflows(id, flow_date, amount, memo, source manual|rebalance, created_at)` — 월급 이체 등 시드 추가·인출 (2026-11-03 추가)
 - `login_attempts(ip PK, fail_count, window_start, locked_until, updated_at)`
 - `notify_log(kind, key, detail, sent_at, PK(kind,key))`
@@ -137,7 +137,8 @@ POST   /api/telegram/test | /api/telegram/signal
 - 히어로 하단 요약: 이번 달 리밸런싱 기록 여부 / 다음 신호 확정일(그 달 마지막 평일) / 마지막 리밸런싱.
 - 라이트/다크: OS 설정 + 수동 토글(`data-theme`, localStorage `haa-theme`). 차트는 테마 변경 시 다시 그림.
 - 색 규칙: 등락·매매는 한국식 (상승·매수 = 빨강 `--up`, 하락·매도 = 파랑 `--down`). 종목 색은 종목에 고정 (`--t-SPY` …, dataviz 검증 8색 + BIL 회색). 매수 ETF 는 원본 종목 색을 그대로 씀 (`--t-SPYM: var(--t-SPY)` 등, app.css 끝). 수치 텍스트는 잉크색 + ▲▼ 로 방향 표시.
-- 계산기: 총자산 = Σ현재보유×현재가 + 현금 + 입출금. 목표 수량 = floor(총자산×비중÷현재가) (소수점 매매 시 4자리). "체결 후"를 직접 고치면 `S.rb.edited` 로 고정. 잔여 현금 = 현금 + 입출금 + 매도액 − 매수액 (체결가 기준).
+- 계산기: 총자산 = Σ현재보유×현재가 + 현금 + 입출금. 목표 수량 = floor(총자산×비중÷현재가) (소수점 매매 시 4자리). "체결 후"를 직접 고치면 `S.rb.edited` 로 고정. 잔여 현금 = 현금 + 입출금 + 매도액 − 매수액 − 수수료 (체결가 기준).
+- **거래 수수료** (사용자 요청 2026-11-03, 기본 0.09%): 수수료 = Σ |체결 후 − 현재| × 체결가 × 수수료율, 주문별 센트 반올림. 수수료율 입력 `#rb-fee-rate` 는 localStorage `haa-fee-rate` 에 저장. 목표 수량은 1차 목표의 매매액 × 수수료율만큼 총자산을 줄여 다시 계산 (현금 부족 방지). 요약의 `#sum-fee` 에 실제 청구액을 직접 넣으면 `S.rb.feeEdited` 로 고정 (비우면 계산값). 주문 카드 meta 에 주문별 수수료.
 - 직전 기록의 holdings/cash 로 계산기를 미리 채움.
 - **입출금 기록** (사용자 요청 2026-11-03: 계산기 현금 칸에 넣으면 주문이 재계산돼 시드 추가만 따로 기록할 수 없었음): 기록 탭 `.a-flows` 카드에서 리밸런싱과 별개로 저장.
   - 규칙: 입출금일 ≤ 어떤 리밸런싱 날짜면 그 기록 총자산에 이미 포함된 돈. 마지막 리밸런싱 **이후**(같은 날 제외) 입출금 = 미반영 → 다음 리밸런싱 계산기 입금 칸을 그 합으로 미리 채움 (`pendingFlows()`, `S.rb.pendingDeposit`). 저장 시 입금 칸 − 미반영 합만 새 입출금으로 보냄 (중복 방지).

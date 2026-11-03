@@ -110,6 +110,8 @@ def _validate_record(d: dict) -> dict:
         "memo": str(d.get("memo") or "")[:500],
         # 계산기 입금 칸에 직접 넣은 (아직 입출금 기록에 없는) 금액 → 입출금 기록으로 함께 저장
         "deposit": round(_num(d.get("deposit", 0), "입출금", minimum=-1e12), 2),
+        # 거래 수수료 (참고 기록 — cash 는 이미 수수료를 뺀 체결 후 잔액)
+        "fee": round(_num(d.get("fee", 0), "거래 수수료"), 2),
     }
 
 

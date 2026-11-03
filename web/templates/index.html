@@ -124,6 +124,7 @@
           <label class="field"><span>매매일</span><input class="input" type="date" id="rb-date"></label>
           <label class="field"><span>보유 현금 (USD)</span><input class="input" type="number" inputmode="decimal" step="0.01" id="rb-cash" value="0"></label>
           <label class="field"><span>입금(+) / 출금(−)</span><input class="input" type="number" inputmode="decimal" step="0.01" id="rb-deposit" value="0"></label>
+          <label class="field"><span>거래 수수료율 (%)</span><input class="input" type="number" inputmode="decimal" min="0" step="0.01" id="rb-fee-rate" value="0.09"></label>
           <div class="field setup-toggles">
             <label class="switch"><input type="checkbox" id="rb-fractional"><span class="track"></span>소수점 매매</label>
             <label class="switch"><input type="checkbox" id="rb-all"><span class="track"></span>전체 종목 보기</label>
@@ -141,6 +142,8 @@
         <div class="sum-row big"><span>총자산</span><b id="sum-total">-</b></div>
         <div class="sum-row"><span>매수 금액</span><b id="sum-buy">-</b></div>
         <div class="sum-row"><span>매도 금액</span><b id="sum-sell">-</b></div>
+        <div class="sum-row fee-row"><span>거래 수수료 <small id="sum-fee-note"></small></span>
+          <input class="input sm" type="number" inputmode="decimal" min="0" step="0.01" id="sum-fee" aria-label="거래 수수료 (USD)" title="실제 청구된 수수료가 다르면 직접 고치세요"></div>
         <div class="sum-row"><span>체결 후 현금</span><b id="sum-cash">-</b></div>
         <div class="sum-divider"></div>
         <div>
@@ -148,9 +151,9 @@
           <div class="mini-bar" id="sum-bar"></div>
           <div class="mini-legend" id="sum-legend" style="margin-top:8px"></div>
         </div>
-        <label class="field"><span>메모</span><input class="input" type="text" id="rb-memo" maxlength="500" placeholder="환율, 수수료 등"></label>
+        <label class="field"><span>메모</span><input class="input" type="text" id="rb-memo" maxlength="500" placeholder="환율 등"></label>
         <button class="btn btn-primary btn-block" id="rb-save">기록 저장</button>
-        <p class="card-sub" style="margin:0">목표 수량 = 총자산 × 목표 비중 ÷ 현재가 (내림). 신호 종목 대신 실제 매수 ETF(SPY→SPYM, IWM→VTWO, TLT→VGLT/SPTL, VNQ→SCHH, 현금→SGOV)로 계산합니다. 실제 체결 내용으로 "체결 후"와 "체결가"를 고친 뒤 저장하세요.</p>
+        <p class="card-sub" style="margin:0">목표 수량 = 총자산 × 목표 비중 ÷ 현재가 (내림). 신호 종목 대신 실제 매수 ETF(SPY→SPYM, IWM→VTWO, TLT→VGLT/SPTL, VNQ→SCHH, 현금→SGOV)로 계산합니다. 수수료 = 매수·매도 금액 × 수수료율 (주문별 센트 반올림) 이며 체결 후 현금에서 빠집니다. 실제 체결 내용으로 "체결 후"·"체결가"·수수료를 고친 뒤 저장하세요.</p>
       </aside>
     </div>
   </section>
