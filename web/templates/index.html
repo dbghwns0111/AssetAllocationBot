@@ -167,8 +167,20 @@
     <div id="sub-mine" class="layout rec-layout">
       <div class="stats a-stats" id="rec-stats"></div>
       <div class="card a-chart" id="rec-chart-card">
-        <div class="card-head"><div><h2 class="card-title">총자산 추이</h2><p class="card-sub">리밸런싱 시점의 체결 후 총자산 (USD)</p></div></div>
+        <div class="card-head"><div><h2 class="card-title">총자산 추이</h2><p class="card-sub">리밸런싱 시점의 체결 후 총자산과 투자 원금 (USD)</p></div></div>
         <div class="chart-box"><canvas id="rec-chart" aria-label="총자산 추이 차트" role="img"></canvas></div>
+      </div>
+      <div class="card a-flows">
+        <div class="card-head"><div><h2 class="card-title">입출금 기록</h2>
+          <p class="card-sub">월급 이체 같은 시드 추가·인출만 따로 기록합니다. 주문 계산에는 영향이 없고, 마지막 리밸런싱 이후 기록은 다음 리밸런싱의 입금 칸으로 불러옵니다.</p></div></div>
+        <form class="flow-form" id="flow-form">
+          <div class="segnav" id="flow-kind"><button type="button" class="on" data-v="1">입금</button><button type="button" data-v="-1">출금</button></div>
+          <label class="field"><span>날짜</span><input class="input" type="date" id="flow-date" required></label>
+          <label class="field"><span>금액 (USD)</span><input class="input" type="number" inputmode="decimal" min="0.01" step="0.01" id="flow-amount" placeholder="0.00" required></label>
+          <label class="field flow-memo"><span>메모</span><input class="input" id="flow-memo" maxlength="200" placeholder="예: 10월 월급"></label>
+          <button class="btn btn-primary" id="flow-save" type="submit">추가</button>
+        </form>
+        <div class="flow-list" id="flow-list"></div>
       </div>
       <div class="card a-timeline">
         <div class="card-head"><h2 class="card-title">리밸런싱 타임라인</h2></div>

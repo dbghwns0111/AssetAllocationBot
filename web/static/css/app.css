@@ -515,12 +515,13 @@ dialog.dlg::backdrop { background: rgba(10, 12, 20, .5); }
 }
 
 /* 기록: 차트(고정) + 타임라인 / 차트 + 표 */
-.rec-layout { grid-template-areas: "stats" "chart" "timeline"; }
+.rec-layout { grid-template-areas: "stats" "chart" "flows" "timeline"; }
 .hist-layout { grid-template-areas: "chart" "table"; }
 @media (min-width: 1100px) {
-  .rec-layout { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-areas: "stats stats" "chart timeline"; }
-  .rec-layout #rec-chart-card.hidden + .a-timeline { grid-column: 1 / -1; }
-  .rec-layout .a-chart, .hist-layout .a-chart { position: sticky; top: 84px; }
+  .rec-layout { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-rows: auto auto 1fr;
+                grid-template-areas: "stats stats" "chart timeline" "flows timeline"; }
+  .rec-layout .a-flows { align-self: start; }
+  .hist-layout .a-chart { position: sticky; top: 84px; }
 }
 @media (min-width: 1500px) {
   .hist-layout { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); grid-template-areas: "chart table"; }
@@ -637,3 +638,22 @@ table.heat { border-collapse: separate; border-spacing: 2px; width: 100%; font-v
 :root { --t-SPYM: var(--t-SPY); --t-VTWO: var(--t-IWM); --t-VGLT: var(--t-TLT); --t-SPTL: var(--t-TLT);
         --t-SCHH: var(--t-VNQ); --t-SGOV: var(--t-BIL); }
 .veh-select { font: inherit; font-size: 12px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 4px; margin-left: 2px; }
+
+/* 입출금 기록 (기록 탭) */
+.a-flows { grid-area: flows; }
+.flow-form { display: grid; grid-template-columns: auto minmax(130px, 1fr) minmax(110px, 1fr) minmax(140px, 1.4fr) auto; gap: 10px; align-items: end; }
+.flow-form .segnav { align-self: end; }
+.flow-form .segnav button { padding: 8px 14px; }
+@container (max-width: 620px) {
+  .flow-form { grid-template-columns: 1fr 1fr; }
+  .flow-form .segnav, .flow-form .flow-memo { grid-column: 1 / -1; }
+  .flow-form .btn { grid-column: 1 / -1; }
+}
+.a-flows { container-type: inline-size; }
+.flow-list { margin-top: 14px; display: flex; flex-direction: column; }
+.flow-row { display: grid; grid-template-columns: 92px 1fr auto auto; gap: 10px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.flow-row .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+.flow-tag { font-style: normal; font-size: 11.5px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--surface-3); color: var(--ink-2); margin-left: 6px; white-space: nowrap; }
+.flow-tag.pending { background: var(--accent-soft); color: var(--accent); }
+.flow-empty { padding: 14px 2px 2px; color: var(--muted); font-size: 13.5px; }

@@ -7,7 +7,7 @@ from datetime import date
 
 from flask import Blueprint, current_app, jsonify, request
 
-from database import notify_repo, record_repo
+from database import cashflow_repo, notify_repo, record_repo
 from notification import message_builder as mb
 from notification.scheduler import KIND_SIGNAL, check_and_notify
 from strategy import backtest_service, haa, service
@@ -72,11 +72,15 @@ def _num(v, name: str, minimum: float = 0.0) -> float:
     return x
 
 
-def _validate_record(d: dict) -> dict:
+def _date(v, what: str) -> str:
     try:
-        date.fromisoformat(str(d.get("rebalance_date", "")))
+        return date.fromisoformat(str(v or "")).isoformat()
     except ValueError:
-        raise ValueError("리밸런싱 날짜 형식이 올바르지 않습니다 (YYYY-MM-DD).")
+        raise ValueError(f"{what} 형식이 올바르지 않습니다 (YYYY-MM-DD).")
+
+
+def _validate_record(d: dict) -> dict:
+    _date(d.get("rebalance_date"), "리밸런싱 날짜")
 
     holdings = []
     for h in d.get("holdings") or []:
@@ -104,6 +108,8 @@ def _validate_record(d: dict) -> dict:
         "cash": round(cash, 2),
         "total_value": total,
         "memo": str(d.get("memo") or "")[:500],
+        # 계산기 입금 칸에 직접 넣은 (아직 입출금 기록에 없는) 금액 → 입출금 기록으로 함께 저장
+        "deposit": round(_num(d.get("deposit", 0), "입출금", minimum=-1e12), 2),
     }
 
 
@@ -119,7 +125,9 @@ def create_record():
     except ValueError as e:
         return _err(str(e))
     rid = record_repo.create_record(rec)
-    _log.info("리밸런싱 기록 저장: id=%s %s", rid, rec["rebalance_date"])
+    if abs(rec["deposit"]) >= 0.01:
+        cashflow_repo.create_flow(rec["rebalance_date"], rec["deposit"], "리밸런싱 때 입력", source="rebalance")
+    _log.info("리밸런싱 기록 저장: id=%s %s (입출금 %s)", rid, rec["rebalance_date"], rec["deposit"])
     return jsonify({"ok": True, "id": rid, "message": "리밸런싱 기록을 저장했습니다."}), 201
 
 
@@ -137,6 +145,37 @@ def delete_record(rid: int):
         return _err("기록을 찾을 수 없습니다.", 404)
     _log.info("리밸런싱 기록 삭제: id=%s", rid)
     return jsonify({"ok": True, "message": "기록을 삭제했습니다."})
+
+
+# ── 입출금 (시드 추가·인출) ─────────────────────────────────────────────────
+
+@api_bp.get("/cashflows")
+def list_cashflows():
+    return jsonify(cashflow_repo.list_flows())
+
+
+@api_bp.post("/cashflows")
+def create_cashflow():
+    d = request.get_json(force=True) or {}
+    try:
+        flow_date = _date(d.get("flow_date"), "입출금 날짜")
+        amount = round(_num(d.get("amount"), "금액", minimum=-1e12), 2)
+        if abs(amount) < 0.01:
+            raise ValueError("금액을 입력하세요.")
+    except ValueError as e:
+        return _err(str(e))
+    fid = cashflow_repo.create_flow(flow_date, amount, str(d.get("memo") or "")[:200])
+    _log.info("입출금 기록 저장: id=%s %s %s", fid, flow_date, amount)
+    kind = "입금" if amount > 0 else "출금"
+    return jsonify({"ok": True, "id": fid, "message": f"{kind} 기록을 저장했습니다."}), 201
+
+
+@api_bp.delete("/cashflows/<int:fid>")
+def delete_cashflow(fid: int):
+    if not cashflow_repo.delete_flow(fid):
+        return _err("입출금 기록을 찾을 수 없습니다.", 404)
+    _log.info("입출금 기록 삭제: id=%s", fid)
+    return jsonify({"ok": True, "message": "입출금 기록을 삭제했습니다."})
 
 
 # ── 시스템 / 텔레그램 ────────────────────────────────────────────────────────

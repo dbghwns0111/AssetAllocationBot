@@ -32,6 +32,16 @@ _DDL = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS cashflows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        flow_date TEXT NOT NULL,            -- 입출금일 YYYY-MM-DD
+        amount REAL NOT NULL,               -- USD, 입금 + / 출금 −
+        memo TEXT,
+        source TEXT NOT NULL DEFAULT 'manual',   -- manual(기록 탭) / rebalance(계산기 입금 칸)
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS notify_log (
         kind TEXT NOT NULL,                 -- 예: monthly_signal
         key TEXT NOT NULL,                  -- 예: 2026-10 (적용 월)

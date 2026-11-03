@@ -19,9 +19,9 @@ const MODE = {
 };
 
 const S = {
-  sig: null, partial: false, records: [], hist: null,
+  sig: null, partial: false, records: [], flows: [], hist: null,
   view: 'signal', recSub: 'mine', charts: {},
-  rb: null,          // { cur, after, px, edited, cash, deposit, veh } — 계산기 입력의 원본
+  rb: null,          // { cur, after, px, edited, cash, deposit, pendingDeposit, veh } — 계산기 입력의 원본
   rbPrefilled: false,
 };
 
@@ -332,6 +332,18 @@ function renderMomentum() {
 /* ══ 리밸런싱 ═══════════════════════════════════════════════════════════════ */
 function latestRecord() { return S.records[0] || null; }
 
+// 입출금 합계 — (after, upto] 구간. 리밸런싱 날짜 이하의 입출금은 그 기록의 총자산에 이미 들어간 돈으로 본다
+function flowSum(after, upto) {
+  return S.flows.filter((f) => (after == null || f.flow_date > after) && (upto == null || f.flow_date <= upto))
+    .reduce((a, f) => a + f.amount, 0);
+}
+// 마지막 리밸런싱 이후 입출금 — 다음 리밸런싱 때 계산기 입금 칸으로 불러온다
+function pendingFlows() {
+  const r = latestRecord();
+  return S.flows.filter((f) => !r || f.flow_date > r.rebalance_date);
+}
+const signedUsd = (x) => `${x > 0 ? '+' : ''}${usd(x)}`;
+
 // 신호 종목 → 실제 매수 ETF (haa.EXECUTION). 대안이 있으면(TLT → VGLT/SPTL) 고른 것 → 보유 중인 것 → 첫 번째
 function vehicle(t) {
   const c = S.sig?.execution?.[t] || [t];
@@ -351,12 +363,15 @@ function prefillRebalance() {
   const r = latestRecord();
   const cur = {};
   (r?.holdings || []).forEach((h) => { cur[h.ticker] = h.shares; });
-  S.rb = { cur, after: {}, px: {}, edited: {}, cash: r ? r.cash : 0, deposit: 0, veh: {} };
+  const pend = pendingFlows();
+  const pendSum = +pend.reduce((a, f) => a + f.amount, 0).toFixed(2);
+  S.rb = { cur, after: {}, px: {}, edited: {}, cash: r ? r.cash : 0, deposit: pendSum, pendingDeposit: pendSum, veh: {} };
   $('#rb-cash').value = (S.rb.cash || 0).toFixed(2);
-  $('#rb-deposit').value = 0;
-  $('#rb-prev').textContent = r
+  $('#rb-deposit').value = pendSum;
+  $('#rb-prev').textContent = (r
     ? `직전 기록 ${r.rebalance_date} (${r.apply_month || '-'} 적용) 의 보유 수량과 현금을 불러왔습니다.`
-    : '첫 기록입니다. 현재 보유 수량과 현금을 입력하세요.';
+    : '첫 기록입니다. 현재 보유 수량과 현금을 입력하세요.')
+    + (pend.length ? ` 기록된 입출금 ${pend.length}건(${signedUsd(pendSum)})을 입금 칸에 넣었습니다.` : '');
   S.rbPrefilled = true;
 }
 
@@ -472,6 +487,8 @@ async function saveRecord(btn) {
   }).filter(Boolean);
   const { remain } = S.rbTotals;
   const value = holdings.reduce((a, h) => a + h.shares * h.price, 0);
+  // 입금 칸 중 입출금 기록에 없는 금액만 새 입출금으로 저장 (이미 기록된 건 중복 저장 안 함)
+  const extra = +(rb.deposit - (rb.pendingDeposit || 0)).toFixed(2);
 
   const lines = [
     `${date} · ${monthLabel(s.apply_month)} 신호 (${MODE[s.mode].title})`,
@@ -481,6 +498,8 @@ async function saveRecord(btn) {
     `체결 후 총자산  ${usd(value + remain)}`,
     `잔여 현금  ${usd(remain)}`,
   ];
+  if (Math.abs(rb.deposit) >= 0.01) lines.push(`입출금  ${signedUsd(rb.deposit)}`);
+  if (Math.abs(extra) >= 0.01) lines.push(`  └ 새 입출금 ${signedUsd(extra)} 은 입출금 기록에도 저장됩니다.`);
   if (s.partial) lines.unshift('⚠ 미확정(당월 미리보기) 신호입니다.', '');
   if (remain < -0.005) lines.push('⚠ 현금이 부족합니다. 수량을 확인하세요.');
   if (!(await confirmDialog({ title: '이 내용으로 기록할까요?', body: lines.join('\n'), okText: '저장' }))) return;
@@ -492,7 +511,7 @@ async function saveRecord(btn) {
         body: JSON.stringify({
           rebalance_date: date, apply_month: s.apply_month, signal_asof: s.asof, mode: s.mode,
           canary_momentum: s.canary_momentum, weights: s.weights, holdings, cash: +remain.toFixed(2),
-          memo: $('#rb-memo').value,
+          deposit: extra, memo: $('#rb-memo').value,
         }),
       });
       toast(res.message);
@@ -506,7 +525,7 @@ async function saveRecord(btn) {
 
 /* ══ 기록 ═══════════════════════════════════════════════════════════════════ */
 async function loadRecords() {
-  S.records = await api('/api/records');
+  [S.records, S.flows] = await Promise.all([api('/api/records'), api('/api/cashflows')]);
   if (S.sig) renderSignal();
   if (S.view === 'records') renderRecordsView();
 }
@@ -522,13 +541,22 @@ function renderRecordsView() {
 function renderRecords() {
   const rs = S.records;
   const latest = rs[0], prev = rs[1], first = rs[rs.length - 1];
-  const delta = (a, b) => (a && b && b.total_value ? a.total_value / b.total_value - 1 : null);
-  const d1 = delta(latest, prev), d0 = rs.length > 1 ? delta(latest, first) : null;
+  // 수익률은 입출금을 뺀 값: (지금 총자산 − 그 사이 입출금) ÷ 이전 총자산 − 1
+  const delta = (a, b) => (a && b && b.total_value ? (a.total_value - flowSum(b.rebalance_date, a.rebalance_date)) / b.total_value - 1 : null);
+  // 투자 원금 = 첫 기록 총자산 + 그 뒤 입출금 (첫 기록 날짜 이하 입출금은 첫 총자산에 포함)
+  const principalAt = (r) => first.total_value + flowSum(first.rebalance_date, r.rebalance_date);
+  const principal = latest ? principalAt(latest) : null;
+  const pnl = latest ? latest.total_value - principal : null;
+  const nFlows = latest ? S.flows.filter((f) => f.flow_date > first.rebalance_date && f.flow_date <= latest.rebalance_date).length : 0;
+  const pend = latest ? pendingFlows() : [];
+  const pendSum = pend.reduce((a, f) => a + f.amount, 0);
   const stat = (label, value, d, note) => `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value tnum">${value}</div>
     <div class="stat-delta ${d > 0 ? 'pos' : d < 0 ? 'neg' : 'muted'}">${d == null ? (note || '&nbsp;') : `${tri(d)} ${pct(d)} ${note || ''}`}</div></div>`;
   $('#rec-stats').innerHTML =
-    stat('현재 총자산', latest ? usd(latest.total_value) : '-', d1, '직전 대비') +
-    stat('첫 기록 대비', d0 == null ? '-' : pct(d0), null, first ? `${first.rebalance_date}부터 · 입출금 포함` : '') +
+    stat('현재 총자산', latest ? usd(latest.total_value) : '-', delta(latest, prev), '직전 대비 · 입출금 제외') +
+    stat('투자 원금', latest ? usd(principal) : '-', null, latest
+      ? (pend.length ? `미반영 ${signedUsd(pendSum)} (다음 리밸런싱)` : `첫 기록 + 입출금 ${nFlows}건`) : '') +
+    stat('누적 손익', latest ? signedUsd(pnl) : '-', rs.length > 1 && principal > 0 ? pnl / principal : null, '원금 대비') +
     stat('리밸런싱 횟수', `${rs.length}회`, null, latest ? `최근 ${latest.rebalance_date}` : '');
 
   $('#rec-chart-card').classList.toggle('hidden', rs.length < 2);
@@ -536,8 +564,10 @@ function renderRecords() {
     const asc = [...rs].reverse();
     lineChart('rec', $('#rec-chart'), asc.map((r) => r.rebalance_date), asc.map((r) => r.total_value), {
       label: '총자산', fmt: usd, tick: (v) => `$${Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+      extra: { label: '투자 원금', data: asc.map(principalAt) },
     });
   }
+  renderFlows();
 
   if (!rs.length) {
     $('#timeline').innerHTML = `<div class="empty"><svg><use href="#i-empty"/></svg><b>아직 기록이 없습니다</b>리밸런싱 화면에서 매매 후 기록을 저장하면 여기에 쌓입니다.</div>`;
@@ -545,7 +575,9 @@ function renderRecords() {
   }
   $('#timeline').innerHTML = rs.map((r, i) => {
     const p = rs[i + 1];
-    const d = p && p.total_value ? r.total_value / p.total_value - 1 : null;
+    const d = delta(r, p);
+    const fl = S.flows.filter((f) => (!p || f.flow_date > p.rebalance_date) && f.flow_date <= r.rebalance_date);
+    const flSum = fl.reduce((a, f) => a + f.amount, 0);
     const parts = r.holdings.map((h) => [h.ticker, h.value]);
     if (r.cash > 0.005) parts.push(['CASH', r.cash]);
     const sum = parts.reduce((a, [, v]) => a + v, 0) || 1;
@@ -560,6 +592,7 @@ function renderRecords() {
       <div class="tl-holds">
         ${r.holdings.map((h) => `<div class="tl-hold"><span><b>${h.ticker}</b> ${num(h.shares)}주 @ ${usd(h.price)}</span><span>${usd(h.value)}</span></div>`).join('')}
         <div class="tl-hold"><span>현금</span><span>${usd(r.cash)}</span></div>
+        ${fl.length ? `<div class="tl-hold"><span>입출금 ${fl.length}건 ${p ? '(직전 기록 이후)' : '(첫 기록 전)'}</span><span>${signedUsd(flSum)}</span></div>` : ''}
       </div>
       <div class="tl-foot">
         <input class="input" data-memo="${r.id}" value="${esc(r.memo)}" placeholder="메모" maxlength="500">
@@ -567,6 +600,43 @@ function renderRecords() {
       </div>
     </div></div></div>`;
   }).join('');
+}
+
+function renderFlows() {
+  const r = latestRecord();
+  $('#flow-list').innerHTML = S.flows.length ? S.flows.map((f) => {
+    const pending = !r || f.flow_date > r.rebalance_date;
+    return `<div class="flow-row">
+      <span class="tnum">${f.flow_date}</span>
+      <span class="muted">${esc(f.memo)}${pending ? `<em class="flow-tag pending">${r ? '다음 리밸런싱에 반영' : '첫 리밸런싱에 반영'}</em>` : ''}</span>
+      <span class="flow-amt">${signedUsd(f.amount)}</span>
+      <button class="btn btn-ghost btn-sm" type="button" data-flow-del="${f.id}">삭제</button>
+    </div>`;
+  }).join('') : '<div class="flow-empty">아직 입출금 기록이 없습니다.</div>';
+}
+
+async function saveFlow(btn) {
+  const sign = Number($('#flow-kind button.on')?.dataset.v || 1);
+  const amount = fnum($('#flow-amount').value);
+  const flowDate = $('#flow-date').value;
+  if (!flowDate) { toast('날짜를 입력하세요.', 'err'); return; }
+  if (!(amount > 0)) { toast('금액을 입력하세요.', 'err'); return; }
+  await busy(btn, async () => {
+    try {
+      const res = await api('/api/cashflows', { method: 'POST', body: JSON.stringify({ flow_date: flowDate, amount: sign * amount, memo: $('#flow-memo').value }) });
+      toast(res.message);
+      $('#flow-amount').value = '';
+      $('#flow-memo').value = '';
+      await afterFlowChange();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+}
+
+// 입출금이 바뀌면 다음 리밸런싱 입금 칸(미반영 입출금)도 다시 채운다
+async function afterFlowChange() {
+  await loadRecords();
+  prefillRebalance();
+  renderRebalance();
 }
 
 async function loadHistory() {
@@ -608,7 +678,7 @@ const crosshair = {
   },
 };
 
-function lineChart(key, canvas, labels, data, { label, fmt, tick, zero = false }) {
+function lineChart(key, canvas, labels, data, { label, fmt, tick, zero = false, extra = null }) {
   if (typeof Chart === 'undefined') return;
   S.charts[key]?.destroy();
   const accent = cssVar('--accent'), line = cssVar('--line'), muted = cssVar('--muted'), surface = cssVar('--surface'), ink = cssVar('--ink');
@@ -621,7 +691,10 @@ function lineChart(key, canvas, labels, data, { label, fmt, tick, zero = false }
       label, data, borderColor: accent, borderWidth: 2, cubicInterpolationMode: 'monotone', fill: zero ? 'origin' : 'start', backgroundColor: grad,
       pointRadius: data.length <= 12 ? 3 : 0, pointHoverRadius: 5, pointBackgroundColor: accent,
       pointBorderColor: surface, pointBorderWidth: 2, borderCapStyle: 'round', borderJoinStyle: 'round',
-    }] },
+    }, ...(extra ? [{
+      label: extra.label, data: extra.data, borderColor: muted, borderWidth: 1.5, borderDash: [5, 4], stepped: 'before',
+      fill: false, pointRadius: 0, pointHoverRadius: 4, pointBackgroundColor: muted,
+    }] : [])] },
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
       interaction: { mode: 'index', intersect: false },
@@ -630,7 +703,7 @@ function lineChart(key, canvas, labels, data, { label, fmt, tick, zero = false }
         tooltip: {
           backgroundColor: surface, titleColor: ink, bodyColor: ink, borderColor: line, borderWidth: 1,
           padding: 10, displayColors: false, cornerRadius: 10,
-          callbacks: { label: (c) => `${label}  ${fmt(c.parsed.y)}` },
+          callbacks: { label: (c) => `${c.dataset.label}  ${fmt(c.parsed.y)}` },
         },
       },
       scales: {
@@ -726,6 +799,21 @@ function bindEvents() {
   });
   $('#rb-save').addEventListener('click', (e) => saveRecord(e.currentTarget));
 
+  $$('#flow-kind button').forEach((b) => b.addEventListener('click', () => {
+    $$('#flow-kind button').forEach((x) => x.classList.toggle('on', x === b));
+  }));
+  $('#flow-form').addEventListener('submit', (e) => { e.preventDefault(); saveFlow($('#flow-save')); });
+  $('#flow-list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-flow-del]');
+    if (!btn) return;
+    const f = S.flows.find((x) => String(x.id) === btn.dataset.flowDel);
+    if (!(await confirmDialog({ title: '입출금 기록을 삭제할까요?', body: `${f.flow_date} · ${signedUsd(f.amount)}${f.memo ? ` · ${f.memo}` : ''}\n삭제하면 되돌릴 수 없습니다.`, okText: '삭제', danger: true }))) return;
+    await busy(btn, async () => {
+      try { toast((await api(`/api/cashflows/${f.id}`, { method: 'DELETE' })).message); await afterFlowChange(); }
+      catch (err) { toast(err.message, 'err'); }
+    });
+  });
+
   $$('#rec-tabs button').forEach((b) => b.addEventListener('click', () => { S.recSub = b.dataset.sub; history.replaceState(null, '', `#records/${S.recSub}`); renderRecordsView(); }));
   $('#timeline').addEventListener('change', async (e) => {
     const id = e.target.dataset.memo;
@@ -758,6 +846,7 @@ function bindEvents() {
 
 (async function init() {
   $('#rb-date').value = todayStr();
+  $('#flow-date').value = todayStr();
   syncThemeSeg();
   bindEvents();
   setView(location.hash.slice(1) || 'signal', false);

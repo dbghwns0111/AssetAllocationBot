@@ -31,7 +31,7 @@
 
 ```bash
 .venv/Scripts/python main.py                 # http://127.0.0.1:5001 (.env 없을 때)
-.venv/Scripts/python -m pytest -q            # 전략 로직 테스트 (tests/test_haa.py)
+.venv/Scripts/python -m pytest -q            # 전략·백테스트·입출금 API 테스트 (tests/)
 node --check web/static/js/app.js
 ```
 - 사용자 PC 의 전역 Anaconda 는 numpy/pandas ABI 충돌로 깨져 있음 → 반드시 `.venv`.
@@ -50,7 +50,7 @@ strategy/backtest.py         백테스트 엔진(순수 함수): STRATEGIES 등�
 strategy/benchmarks.py       고정 비중 벤치마크 6종 + fixed_signal()
 strategy/backtest_service.py 가격(max 일봉) 조회 + 대체 데이터 이어붙이기 + 파라미터 검증(normalize) + 결과 조립 + 기본 결과 캐시
 market/splice.py             ETF 상장 전 구간을 대체 데이터로 이어 붙임 (CHAINS, ^IRX 금리→지수)
-database/                    connection(WAL, 백업, 무결성) · models(DDL) · record_repo · auth_repo · notify_repo
+database/                    connection(WAL, 백업, 무결성) · models(DDL) · record_repo · cashflow_repo · auth_repo · notify_repo
 notification/telegram.py     자산배분 전용 봇 클라이언트 (HTML 전송, 400 이면 평문 재전송)
 notification/message_builder.py  모든 메시지는 card() 경유 (이스케이프 일원화, <pre> 폭 36칸)
 notification/scheduler.py    APScheduler: 매시 05분 신호 점검(check_and_notify), 04:30 DB 백업, 06:40 기본 백테스트 갱신
@@ -108,7 +108,10 @@ scripts/*.ps1 + 루트 *.bat   install_service / uninstall_service / update / de
 GET    /api/signal?partial=1&refresh=1   신호 + 모멘텀 + 최신가 + prev/added/removed + fetched_at/stale
 GET    /api/history?months=24            월별 신호 + 그 달 전략 수익률(return, return_partial)
 GET    /api/records                      리밸런싱 기록 (rebalance_date DESC)
-POST   /api/records                      저장 (서버에서 검증·total/weight 재계산)
+POST   /api/records                      저장 (서버에서 검증·total/weight 재계산). deposit = 입금 칸 중 입출금 기록에 없는 금액 → cashflows(source=rebalance)로도 저장
+GET    /api/cashflows                    입출금 기록 (flow_date DESC)
+POST   /api/cashflows                    {flow_date, amount(입금+/출금−, USD), memo}
+DELETE /api/cashflows/<id>
 PATCH  /api/records/<id>                 메모 수정
 DELETE /api/records/<id>
 GET    /api/system                       텔레그램 상태, 마지막 신호 발송, 다음 점검 시각
@@ -119,6 +122,7 @@ POST   /api/telegram/test | /api/telegram/signal
 
 ### DB (`data/haa.db`)
 - `records(id, rebalance_date, apply_month, signal_asof, mode, canary_momentum, weights JSON, holdings JSON, cash, total_value, memo, created_at)` — holdings = 체결 **후** `[{ticker, shares, price, value, weight}]`
+- `cashflows(id, flow_date, amount, memo, source manual|rebalance, created_at)` — 월급 이체 등 시드 추가·인출 (2026-11-03 추가)
 - `login_attempts(ip PK, fail_count, window_start, locked_until, updated_at)`
 - `notify_log(kind, key, detail, sent_at, PK(kind,key))`
 
@@ -135,3 +139,6 @@ POST   /api/telegram/test | /api/telegram/signal
 - 색 규칙: 등락·매매는 한국식 (상승·매수 = 빨강 `--up`, 하락·매도 = 파랑 `--down`). 종목 색은 종목에 고정 (`--t-SPY` …, dataviz 검증 8색 + BIL 회색). 매수 ETF 는 원본 종목 색을 그대로 씀 (`--t-SPYM: var(--t-SPY)` 등, app.css 끝). 수치 텍스트는 잉크색 + ▲▼ 로 방향 표시.
 - 계산기: 총자산 = Σ현재보유×현재가 + 현금 + 입출금. 목표 수량 = floor(총자산×비중÷현재가) (소수점 매매 시 4자리). "체결 후"를 직접 고치면 `S.rb.edited` 로 고정. 잔여 현금 = 현금 + 입출금 + 매도액 − 매수액 (체결가 기준).
 - 직전 기록의 holdings/cash 로 계산기를 미리 채움.
+- **입출금 기록** (사용자 요청 2026-11-03: 계산기 현금 칸에 넣으면 주문이 재계산돼 시드 추가만 따로 기록할 수 없었음): 기록 탭 `.a-flows` 카드에서 리밸런싱과 별개로 저장.
+  - 규칙: 입출금일 ≤ 어떤 리밸런싱 날짜면 그 기록 총자산에 이미 포함된 돈. 마지막 리밸런싱 **이후**(같은 날 제외) 입출금 = 미반영 → 다음 리밸런싱 계산기 입금 칸을 그 합으로 미리 채움 (`pendingFlows()`, `S.rb.pendingDeposit`). 저장 시 입금 칸 − 미반영 합만 새 입출금으로 보냄 (중복 방지).
+  - 통계: 직전 대비 = (총자산 − 사이 입출금) ÷ 이전 총자산 − 1, 투자 원금 = 첫 기록 총자산 + 이후 입출금, 누적 손익 = 총자산 − 원금. 총자산 차트에 원금 점선(`lineChart` 의 `extra`). 타임라인 카드에 직전 기록 이후 입출금 합.
